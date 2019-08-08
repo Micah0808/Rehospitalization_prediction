@@ -1,7 +1,6 @@
 # !/usr/bin/env python
 # _*_ coding: utf-8 _*_
 
-
 """
 
 Predicting re-hospitalization within two years of admission for acute
