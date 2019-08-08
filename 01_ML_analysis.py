@@ -1,1 +1,742 @@
-#!/usr/bin/env python# _*_ coding: utf-8 _*_"""Predicting re-hospitalization within two years of admission for acutemajor depression: A multimodal machine learning approach."""__author__ = 'Micah Cearns'__contact__ = 'micahcearns@gmail.com'__date__ = 'Jan 2019'# Miscfrom tempfile import mkdtempfrom shutil import rmtreefrom time import timefrom tqdm import tqdmimport pickleimport os# Data manipulationimport numpy as npimport pandas as pd# Imputationfrom MICE import IterativeImputerfrom sklearn.preprocessing import StandardScaler# Feature selectionfrom sklearn.feature_selection import SelectKBest, f_classif, SelectFromModel# Cross validation and hyperparameter optimisationfrom sklearn.model_selection import (cross_validate,                                     cross_val_predict,                                     RepeatedStratifiedKFold,                                     GridSearchCV,                                     RandomizedSearchCV,                                     train_test_split)# Classifiersfrom sklearn.svm import SVCfrom sklearn.linear_model import ElasticNetCV# Pipeline architecturefrom sklearn.pipeline import Pipeline# Model metricsfrom sklearn.metrics.scorer import make_scorerfrom sklearn.metrics import (precision_score,                             recall_score,                             f1_score,                             brier_score_loss)# Calibrationfrom sklearn.calibration import calibration_curve, CalibratedClassifierCV# Plottingimport matplotlib.pyplot as pltimport seaborn as snssns.set(font_scale=2)sns.set_style("whitegrid")# Setting working directoryos.chdir('/Users/MicahJackson/anaconda/pycharm_wd/hospitilization_pred')def pandas_config():    """    Pandas configuration    :return: Configured Pandas    """    options = {        'display': {            'max_columns': None,            'max_colwidth': 25,            'expand_frame_repr': False,  # Don't wrap to multiple pages            'max_rows': 14,            'max_seq_items': 50,  # Max length of printed sequence            'precision': 4,            'show_dimensions': False},  # Controls SettingWithCopyWarning        'mode': {            'chained_assignment': None            }    }    for category, option in options.items():        for op, value in option.items():            pd.set_option(f'{category}.{op}', value)    returndef data_prep(data, y, dropna=False):    """    Basic data preparation function, prepares the feature matrix X and the    outcome vector y, sets up pseudo random number for cross-validation.    :param data: Dataframe to be partitioned into an X feature matrix and y                 outcome vector    :param y: Which feature to convert to an outcome vector    :param dropna: If True, drop observations with missing data    :return: X - Feature matrix             y - Vector of class labels             rand_state - Pseudo random number for repeatable cross-validation                          results in later analysis    """    rand_state = 10  # Setting random state for later cv    df = pd.read_pickle(data)  # Reading in data    if dropna is True:        df.dropna(axis = 0, inplace = True)    else:        pass    X = df.drop(y, axis = 1)  # Assigning the feature space to X    y = df[y]  # Class labels to predict    return X, y, rand_statedef multi_metric_scorer():    """    Scoring dictionary for outer loop multi metric scoring.    :return: Dictionary of scoring metrics    """    scoring = {'AUC': 'roc_auc',               'Accuracy': 'accuracy',               'Balanced_accuracy': make_scorer(                   recall_score,                   pos_label = None,                   average = 'macro',                   sample_weight = None               ),               'Sensitivity': make_scorer(                   recall_score,                   pos_label = 1,                   average = 'binary',                   sample_weight = None               ),               'Specificity': make_scorer(                   recall_score,                   pos_label = 0,                   average = 'binary',                   sample_weight = None               ),               'F1': make_scorer(                   f1_score, average = 'weighted'               ),               'PPV': make_scorer(                   precision_score,                   pos_label = 1,                   average = 'binary'               ),               'NPV': make_scorer(                   precision_score, pos_label = 0, average = 'binary'               ),               'Brier_score': 'brier_score_loss'}    return scoringdef pipeline_estimator(X,                       y,                       estimator,                       params,                       scorer,                       inner_cv=10,                       inner_repeats=5,                       outer_cv=10,                       metric='roc_auc',                       selector='enet',                       grid_search=True,                       n_iter=60,                       probas=False,                       n_jobs=1,                       random_state=10):    """    Pipeline for estimator training and testing. To avoid data leakage,    pipeline architecture ensures that all transformations are conducted    within the same cross-validation folds in a nested-scheme.    :param X: Feature matrix for prediction    :param y: Vector of outcome labels to learn and predict    :param estimator: Final model for fitting after transformations    :param params: Hyperparameter dictionary    :param scorer: Scoring dictionary for outer loop multi metric scoring    :param inner_cv: Number of inner loop cross-validation folds    :param inner_repeats: Number of inner loop cross-validation repeats    :param outer_cv: Number of outer loop cross-validation folds    :param metric: Metric to optimize in model training    :param selector: Feature selection method, Elastic net or f-tests    :param probas: If true, use cross_val_predict and return a vector of                   predicted probabilities, if False, run cross_validate    :param n_jobs: How many cores to run for model fitting    :param random_state: Pseudo random number for repeatable cross-validation                         results    :return: scores - Train and test scores             tuned_pipe - Fitted and tuned pipeline             rkfold - rkfold object             cachedir - cache directory to avoid repeat computation    """    # Setting up repeated cross validation    rkfold = RepeatedStratifiedKFold(        n_splits = inner_cv,        n_repeats = inner_repeats,        random_state = random_state    )    # MICE imputation    imputer = IterativeImputer(        n_nearest_features = 10,        min_value = -5000.0,        max_value = 5000.0,        random_state = random_state    )    # Mean centering the data for the linear svm    scaler = StandardScaler(with_mean = True, with_std = True)    # Feature selection    if selector is 'enet':        selector = SelectFromModel(            estimator = ElasticNetCV(                cv = 5,                n_alphas = 10,                alphas = np.arange(0.1, 1.1, 0.1),                max_iter = -1,                verbose = False,                random_state = random_state            ),            threshold = -np.inf,            max_features = 25,        )        # selector = SelectFromModel(        #     estimator = ElasticNet(max_iter = -1,        #                            random_state = random_state),        #     threshold = -np.inf,        #     max_features = 25,        # )    elif selector is 'f-test':        selector = SelectKBest(score_func = f_classif)    else:        pass    # sampler = SMOTE(random_state = random_state)    # Temp directory to avoid repeat computation    cachedir = mkdtemp()    # Pipeline steps    pipe_params = [        ('imputer', imputer),        ('scaler', scaler),        # ('selector', selector),        ('clf', estimator)    ]    pipe = Pipeline(pipe_params, memory = cachedir)    if grid_search is True:        # Establishing a grid search for hyperparameter optimisation        tuned_pipe = GridSearchCV(            estimator = pipe,            cv = rkfold,            param_grid = params,            scoring = metric,            refit = True,            n_jobs = n_jobs,            iid = True,            verbose = False        )    elif grid_search is False:        tuned_pipe = RandomizedSearchCV(            estimator = pipe,            cv = rkfold,            param_distributions = params,            scoring = metric,            n_iter = n_iter,            refit = True,            n_jobs = n_jobs,            iid = True,            verbose = False,            random_state = random_state        )    else:        raise ValueError('Must specify grid_search = True or False')    if probas is True:  # Outer cross validation loop        scores = cross_val_predict(            estimator = tuned_pipe,            X = X,            y = y,            cv = outer_cv,            n_jobs = n_jobs,            method = 'predict_proba'  # Returns probs, not [0,1]        )    elif probas is False:        scores = cross_validate(            estimator = tuned_pipe,            X = X,            y = y,            scoring = scorer,            cv = outer_cv,            return_train_score = True,            n_jobs = n_jobs        )    else:        raise ValueError('Must specify True or False for probas')    return scores, tuned_pipe, rkfold, cachedirdef reliability_curve(tuned_pipe, X, y):    """    :param tuned_pipe: Grid search instance from pipeline estimator    :param X: Feature matrix X in the form of a Pandas dataframe    :param y: Outcome vector y, in the form of a Pandas series    :return: Reliability curve    """    # Calibrated pipeline    sigmoid = CalibratedClassifierCV(        base_estimator = tuned_pipe, method = 'sigmoid', cv = 10    )    pred_probas = sigmoid.fit(X, y).predict_proba(X)[:, 1]    fraction_of_positives, mean_predicted_value = calibration_curve(        y_true = y, y_prob = pred_probas, normalize = False, n_bins = 10    )    # Brier score loss    bs = brier_score_loss(        y_true = y, y_prob = pred_probas, sample_weight = None, pos_label = 1    )    fig = plt.figure(1, figsize = (10, 10))    ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan = 2)    ax2 = plt.subplot2grid((3, 1), (2, 0))    ax1.plot([0, 1], [0, 1], "k:", label = "Perfectly calibrated")    ax1.plot(mean_predicted_value,             fraction_of_positives, "s-", label = "%s (%1.3f)" %                                                  ('Brier Score', bs))    ax2.hist(pred_probas,             range = (0, 1),             bins = 10,             label = 'Multimodal SVM + Sigmoid calibration',             histtype = "step",             lw = 2)    ax1.set_ylabel("Fraction of positives")    ax1.set_ylim([-0.05, 1.05])    ax1.legend(loc = "lower right")    ax1.set_title('Calibration plot  (reliability curve)')    ax2.set_xlabel("Mean predicted value")    ax2.set_ylabel("Count")    ax2.legend(loc = "upper right", ncol = 2)    plt.tight_layout()    plt.show()    returndef serialize_model(model, X, y):    """    Function to serialize the trained model for open sourcing on the Photon    AI repository    To load model and predict:    with open(pkl_filename, 'rb') as file:        pickle_model = pickle.load(file)    Scoring:    score = pickle_model.score(X_test, y_test)    print("Test score: {0:.2f} %".format(100 * score))    Get a prediction array for each target:    y_pred = pickle_model.predict(X_test)    :param model: Gridsearch object with nested pipeline    :param X: Predictor matrix    :param y: Outcome vector {0,1}    :return: Serialized model file in pickle format saved to the working             directory    """    # Fitting the model to the full dataset    model.fit(X, y)    # Pickling    pkl_filename = 'rehosp_model.pkl'    with open(pkl_filename, 'wb') as file:        pickle.dump(model, file)    returndef train_test_scores(estimator_scores):    """    Scoring function for cross-validated pipeline results    :param estimator_scores: Train and test scores from pipeline estimator    :return: train_results - Train partition results             test_results - Test partition results    """    # Converting the dictionary of scores from cross_validate to a dataframe    # and dropping unnecessary rows    scores_df = (pd                 .DataFrame                 .from_dict(estimator_scores)                 .drop(['fit_time', 'score_time'], axis = 1))    # Getting mean scores and standard deviations from repeated cv    scores_mean = np.abs(scores_df.mean() * 100)    scores_std = np.abs(scores_df.std() * 100)    # Returning results as pandas dataframe    results = pd.DataFrame({'Accuracy': scores_mean,                            'Standard Deviation': scores_std})    # Sub-setting train and test results into their own dataframes    train_results = np.round(results.iloc[list(range(1, 19, 2))], decimals = 4)    test_results = np.round(results.iloc[list(range(0, 18, 2))], decimals = 4)    # Returning Brier scores back to a value between 0 and 1    train_results.iloc[8] = (train_results.iloc[8]/100)    test_results.iloc[8] = (test_results.iloc[8]/100)    return train_results, test_results, scores_dfdef kbest(X, y, select_method, pipeline):    """    Elastic net or univariate f-test based feature selection.    :param X: Feature matrix for prediction    :param y: Vector of outcome labels    :param select_method: The elastic net of f-tests    :param pipeline: Pipeline estimator for fitting with final selected                     features    :return: kbest_df - Dataframe of final selected features             params_df - Dataframe of the selected hyperparameters             best_inner_cv_test_score - Best grid search score for model             selection    """    pipe = pipeline.fit(X = X, y = y)  # Fit the tuned pipe to the whole dataset    # if select_method is 'enet':    #     coefs = (pipe    #              .best_estimator_    #              .named_steps['selector']    #              .estimator_  # This is an attribute from SelectFromModel    #              .coef_[pipe    #                     .best_estimator_    #                     .named_steps['selector']    #                     .get_support()])  # Integer index of selected feats    # elif select_method is 'f-test':    #     coefs = (pipe    #              .best_estimator_    #              .named_steps['selector']    #              .scores_[pipe    #                       .named_steps['selector']    #                       .get_support()])    # else:    #     raise ValueError("""Must specify feature selection technique    #                      in select method""")    # Getting weights from the linear SVM    svm_weights = pipe.best_estimator_.named_steps['clf'].coef_.ravel()    # # Getting feature names    # names = (X    #          .columns    #          .values[pipe    #                  .best_estimator_    #                  .named_steps['selector']    #                  .get_support()])    names = X.columns.values    names_scores = list(zip(names, svm_weights))  # coefs    kbest_df = (pd                .DataFrame(data = names_scores,                           columns = ['Features', 'Weights'])                .sort_values(by = 'Weights', ascending = False))    optimal_params = pipeline.best_params_  # Getting the tuned parameters    params_df = pd.DataFrame.from_dict(        data = optimal_params, orient = 'index', columns = ['Parameters']    )    best_inner_cv_test_score = pipeline.best_score_  # Best hyper-param score    # if select_method is 'enet':    #     # Filtering out zeroed coefficients from the elastic net that were not    #     # removed in SelectFromModel    #     kbest_df = kbest_df.loc[(kbest_df['Coefs'] != 0.000000)    #                             | kbest_df['Coefs'] != -0.000000]    #     # Final constant regularization value (alpha) used in the elastic net    #     alpha = (np    #              .round(pipe    #                     .best_estimator_    #                     .named_steps['selector']    #                     .estimator_    #                     .coef_,    #                     decimals = 4))        # alpha = (np        #          .round(pipe        #                 .best_estimator_        #                 .named_steps['selector']        #                 .estimator_        #                 .alpha_,        #                 decimals = 4))        # # The grid of alphas used for fitting each l1 ratio        # alphas = (np        #           .round(pipe        #                  .best_estimator_        #                  .named_steps['selector']        #                  .estimator_        #                  .alphas_,        #                  decimals = 4))    #     return pipe, kbest_df, params_df, best_inner_cv_test_score, alpha    # else:    return pipe, kbest_df, params_df, best_inner_cv_test_scoredef manual_perm_test(model: 'Fitted sklearn estimator',                     X: 'Pandas df',                     y: 'Pandas series',                     true_score: float,                     n_permutations: int=100,                     plot: bool=True,                     clf: bool=False) -> 'p-value, null_counts':    """    :param model: Fitted sklearn estimator object    :param X: Feature matrix for prediction    :param y: Vector of outcome labels    :param true_score: Final score from the outer cross-validation loop    :param n_permutations: Number of permutations to build the null distribution    :param plot: If true, plot the null distribution and fitted estimator score    :param clf: If True, model param is a classification estimator and not an                a regression estimator    :return: p_value - p value for the fitted estimator             null_counts - The number of times a null score that was greater or             equal to the fitted estimator score appears in the null             distribution    """    scores = []  # Empty list for null distribution scores    n_perms = range(1, n_permutations, 1)  # Range of values to permute    for n in tqdm(n_perms, desc = 'Permutation test'):  # tqdm for progress bar        X_train, X_test, y_train, y_test = train_test_split(            X, y, stratify = y, test_size = 0.90, random_state = n        )        model.fit(X_train, y_train)        y_test_perm = np.random.permutation(y_test)  # Permuting class labels        chance_scores = round(model.score(X = X_test, y = y_test_perm), 4)        scores.append(chance_scores)    # Converting to a pandas dataframe    perm_scores_df = pd.DataFrame(data = scores, columns = ['null_dist'])    perm_scores_df['null_dist'] *= 100    null_counts = (        perm_scores_df  # Counts greater than or equal to our test set score        .loc[(perm_scores_df['null_dist']) >= true_score]        .count()        .iloc[0]    )    p_value = (null_counts + 1) / (n_permutations + 1)    p_value = np.round(p_value, decimals = 5)    if plot is True:  # Plotting a histogram of permutation scores        # plotting the null distribution        plt.figure(figsize = (10, 10))        sns.distplot(a = perm_scores_df['null_dist'],                     hist = True,                     label = 'Permutation scores')        ylim = plt.ylim()        if clf is False:            # True classifier score and p-value            plt.plot(2 * [true_score],                     ylim,                     '--g',                     linewidth = 3,                     label = 'R2 score %s (pvalue : %s)' %                             (true_score, p_value))        else:            plt.plot(2 * [true_score],                     ylim,                     '--g',                     linewidth = 3,                     label = 'Multimodal AUC score: %s (pvalue = %s)' %                             (true_score, p_value))            n_classes = np.unique(y).size            chance = 2 * [100. / n_classes]            plt.plot(chance,                     ylim,                     '--k',                     linewidth = 3,                     label = 'Null model mean AUC score: %s' % 50.00)        # Plotting distribution and results        plt.ylim(ylim)        plt.legend(loc = 'lower center', bbox_to_anchor = (0.5, -0.38))        plt.tight_layout()        if clf is False:            plt.xlabel(xlabel = 'R2 Scores')        else:            plt.xlabel(xlabel = 'AUC Scores')        plt.title(label = 'Null Distribution')        plt.savefig('quadratic_null_dist.png', dpi = 300, bbox_inches = 'tight')        plt.show()    return p_value, null_countsdef main():    print(__doc__)    os.environ['PYTHONWARNINGS'] = 'ignore'    start_time = time()    pandas_config()    # # Preparing data    # X, y, rand_state = data_prep(    #     data = 'multi_cleaned_hospital_bidirect_df.pkl',    #     y = 'relapse',    #     dropna = False    # )    # Preparing data    X, y, rand_state = data_prep(        data = 'subset_multi_df_cleaned_psqi7.pkl',        y = 'relapse',    )    X = X[['pi_n_epi_inpatient',           'cesd5',           'psqi_sum',           'med_n05ah',           'psqi7',           'Rhippo',           'cesd3',           'cholesterol',           'med_h03',           'al_f1']]    # X = X[['anxiety_pgrs_score',    #        'alzheimer_pgrs',    #        'mdd_23me_pgrs',    #        'anorexia_pgrs',    #        'asd_pgrs',    #        'pgc_bip_pgrs',    #        # 'pgc_mdd_pgrs',    #        # 'pgc_mdd_new_pgrs',    #        'pgc_scz_pgrs']]    # X.drop('pm_d1_a', axis = 1, inplace = True)    # Linear SVM    svc = SVC(        C = 0.001,        kernel = 'linear',        class_weight = 'balanced',        probability = True,  # Implements Platt scaling        random_state = rand_state    )    # Hyperparameter grid    svc_params = {        'clf__C': [0.001, 0.01],  # 0.1, 1.0        # 'selector__estimator__l1_ratio': [0.1, 0.5, 0.7, 0.9, 0.95, 0.99],        # 'selector__estimator__alpha': np.arange(0.2, 1.2, 0.2),    }    # 'selector__estimator__l1_ratio': [0.1, 0.5, 0.9]}    # 'selector__max_features': [5, 10, 15]}    # svc_params = {'clf__C': [0.001, 0.001, 0.1, 1.0]}    # Setting up multi-metric evaluation    scorer = multi_metric_scorer()    # Running pipeline    scores, tuned_pipe, rkfold, cachedir = pipeline_estimator(        X = X,        y = y,        estimator = svc,        params = svc_params,        scorer = scorer,        inner_cv = 2,        inner_repeats = 2,        outer_cv = 2,        metric = 'roc_auc',        selector = 'enet',        grid_search = True,        n_iter = 2,        probas = False,        n_jobs = -2,        random_state = rand_state    )    # reliability_curve(tuned_pipe = tuned_pipe, X = X, y = y)    # Train / test results    train_results, test_results, scores_df = train_test_scores(        estimator_scores = scores    )    # Clearing the cache directory    rmtree(cachedir)    # # Serializing the model    # serialize_model(model = tuned_pipe, X = X, y = y)    # Kbest features from the elastic net    pipe, top_features, params_df, best_inner_cv_test_score = kbest(        X = X, y = y, select_method = 'enet', pipeline = tuned_pipe    )    # Using a permutation test to test the significance of the classifier    p_value, null_counts = manual_perm_test(        model = pipe,        X = X,        y = y,        true_score = 67.74,        n_permutations = 10000,        plot = True,        clf = True    )    # Output    stop_time = time()    run_time = np.round((stop_time - start_time) / 60, decimals = 2)    best_inner_cv_test_score = np.round(best_inner_cv_test_score, decimals = 4)    output = (('Best inner CV score = {score}'               .format(score = best_inner_cv_test_score)), '',              'Train results:', train_results, '',              'Test results:', test_results, '',              'Features selected by the Elastic Net:', top_features, '',              'Hyperparameters selected in CV:', params_df, '',              # 'Final elastic net alpha value:', alpha, '',              # 'Elastic net alphas searched in CV:', alphas, '',              'p value:', p_value, '',              'Null counts:', null_counts, '',              'Run time = {timer} minutes'.format(timer = run_time))    return print(*output, sep = '\n')if __name__ == '__main__':    print(main())# Best inner CV score = 0.669## Train results:#                          Accuracy  Standard Deviation# train_AUC                 78.6513              3.3318# train_Accuracy            72.4327              6.0591# train_Balanced_accuracy   69.5945              6.2725# train_Sensitivity         63.4795             23.2909# train_Specificity         75.7096             14.6925# train_F1                  72.4083              5.2887# train_PPV                 54.5433             13.4527# train_NPV                 85.9912              4.9968# train_Brier_score          0.1674              0.0189## Test results:#                         Accuracy  Standard Deviation# test_AUC                 65.6219             10.3279# test_Accuracy            63.1057              6.4097# test_Balanced_accuracy   57.0785              6.4434# test_Sensitivity         44.0909             24.1219# test_Specificity         70.0661             15.4655# test_F1                  62.7533              4.0773# test_PPV                 31.4144             12.2040# test_NPV                 78.1406              5.0012# test_Brier_score          0.1934              0.0217## Features selected by the Elastic Net:#               Features   Coefs  Weights# 19               cesd5  0.0140   0.3529# 18  pi_n_epi_inpatient  0.0134   0.2641# 22            psqi_sum  0.0118   0.6590# 24           med_n05ax  0.0082   0.4072# 20             cesd_dp  0.0056   0.0324# 21             cesd_so  0.0016  -0.2866# 23           med_n05ah  0.0010   0.4024## Hyperparameters selected in CV:#                            Parameters# selector__estimator__l...         0.1# selector__estimator__a...         0.7# clf__C                            1.0# Best inner CV score = 0.6763## Train results:#                          Accuracy  Standard Deviation# train_AUC                 76.5676              1.4643# train_Accuracy            73.8959              8.2940# train_Balanced_accuracy   64.7400              4.0243# train_Sensitivity         44.9713             21.7624# train_Specificity         84.5087             18.4149# train_F1                  72.0337              7.4974# train_PPV                 60.8714             13.7687# train_NPV                 81.6959              4.4937# train_Brier_score          0.1832              0.0122## Test results:#                         Accuracy  Standard Deviation# test_AUC                 67.0275             11.4816# test_Accuracy            69.9156             11.1220# test_Balanced_accuracy   60.4621              7.0109# test_Sensitivity         40.0909             20.3435# test_Specificity         80.8333             20.1541# test_F1                  68.2985              9.3000# test_PPV                 53.2754             21.8501# test_NPV                 78.9392              3.8433# test_Brier_score          0.1901              0.0159## Features selected by the Elastic Net:#              Features   Coefs  Weights# 8           med_n05ax  0.0339   0.0836# 2  pi_n_epi_inpatient  0.0327   0.0930# 5            psqi_sum  0.0295   0.0974# 3               cesd5  0.0269   0.1017# 7           med_n05ah  0.0234   0.0717# 0              Rhippo  0.0166   0.0567# 9           med_n05cd  0.0109   0.0515# 1         cholesterol -0.0089  -0.0440# 4               al_f1 -0.0100  -0.0650# 6             med_h03 -0.0123  -0.0511## Hyperparameters selected in CV:#                            Parameters# clf__C                          0.001# selector__estimator__l...       0.100## Final elastic net alpha value:# 0.3443## Elastic net alphas searched in CV:# [1.0514 0.9806 0.9145 0.8528 0.7954 0.7418 0.6918 0.6451 0.6017 0.5611#  0.5233 0.488  0.4551 0.4245 0.3959 0.3692 0.3443 0.3211 0.2994 0.2793#  0.2604 0.2429 0.2265 0.2113 0.197  0.1837 0.1714 0.1598 0.149  0.139#  0.1296 0.1209 0.1127 0.1051 0.0981 0.0914 0.0853 0.0795 0.0742 0.0692#  0.0645 0.0602 0.0561 0.0523 0.0488 0.0455 0.0424 0.0396 0.0369 0.0344#  0.0321 0.0299 0.0279 0.026  0.0243 0.0227 0.0211 0.0197 0.0184 0.0171#  0.016  0.0149 0.0139 0.013  0.0121 0.0113 0.0105 0.0098 0.0091 0.0085#  0.008  0.0074 0.0069 0.0065 0.006  0.0056 0.0052 0.0049 0.0046 0.0042#  0.004  0.0037 0.0034 0.0032 0.003  0.0028 0.0026 0.0024 0.0023 0.0021#  0.002  0.0018 0.0017 0.0016 0.0015 0.0014 0.0013 0.0012 0.0011 0.0011]## Run time = 1740.07 minutes# =============================================================================# PGRS threshold = 0.05#                          Accuracy  Standard Deviation# train_AUC                 60.2658              0.8842# train_Accuracy            63.8868             19.5350# train_Balanced_accuracy   50.0000              0.0000# train_Sensitivity         20.0000             42.1637# train_Specificity         80.0000             42.1637# train_F1                  51.7178             21.2784# train_PPV                  5.3644             11.3092# train_NPV                 58.5224             30.8441# train_Brier_score          0.1974              0.0001##                         Accuracy  Standard Deviation# test_AUC                 54.8302              8.4543# test_Accuracy            63.9749             19.4885# test_Balanced_accuracy   50.0000              0.0000# test_Sensitivity         20.0000             42.1637# test_Specificity         80.0000             42.1637# test_F1                  51.8137             21.2715# test_PPV                  5.4054             11.3956# test_NPV                 58.5695             30.8785# test_Brier_score          0.1972              0.0036# PGRS threshold = 0.01##                          Accuracy  Standard Deviation# train_AUC                 59.7782              0.9047# train_Accuracy            63.8868             19.5350# train_Balanced_accuracy   50.0000              0.0000# train_Sensitivity         20.0000             42.1637# train_Specificity         80.0000             42.1637# train_F1                  51.7178             21.2784# train_PPV                  5.3644             11.3092# train_NPV                 58.5224             30.8441# train_Brier_score          0.1973              0.0002##                         Accuracy  Standard Deviation# test_AUC                 54.7174              8.7684# test_Accuracy            63.9749             19.4885# test_Balanced_accuracy   50.0000              0.0000# test_Sensitivity         20.0000             42.1637# test_Specificity         80.0000             42.1637# test_F1                  51.8137             21.2715# test_PPV                  5.4054             11.3956# test_NPV                 58.5695             30.8785# test_Brier_score          0.1971              0.0035# =============================================================================# Multimodal model# Best inner CV score = 0.6621## Train results:#                           Accuracy  Standard Deviation# train_AUC                78.000900            0.901200# train_Accuracy           71.110500            1.369700# train_Balanced_accuracy  69.878600            1.006700# train_Sensitivity        67.215700            2.127100# train_Specificity        72.541500            2.205100# train_F1                 72.404900            1.188100# train_PPV                47.385600            1.825200# train_NPV                85.782900            0.681000# train_Brier_score         0.158382            0.003955## Test results:#                         Accuracy  Standard Deviation# test_AUC                68.05210           10.711300# test_Accuracy           64.96950            6.821900# test_Balanced_accuracy  63.45560            6.643900# test_Sensitivity        60.36360           15.333500# test_Specificity        66.54760           10.861100# test_F1                 66.34740            6.214500# test_PPV                40.37450            6.482100# test_NPV                82.47990            4.969800# test_Brier_score         0.18058            0.025818## Features selected by the Elastic Net:#              Features     Coefs# 2  pi_n_epi_inpatient  0.041449# 8           med_n05ax  0.040782# 5            psqi_sum  0.036774# 3               cesd5  0.034544# 7           med_n05ah  0.026205# 0              Rhippo  0.016447# 9           med_n05cd  0.007151# 1         cholesterol -0.005672# 4               al_f1 -0.007070# 6             med_h03 -0.010026## Hyperparameters selected in CV:#         Parameters# clf__C         0.1# Predictors and counts# Imaging: N = 15## 0                                 Lhippo# 1                                 Rhippo# 2         L_medialorbitofrontal_thickavg# 3         R_medialorbitofrontal_thickavg# 4                    L_fusiform_thickavg# 5                    R_fusiform_thickavg# 6                      L_insula_thickavg# 7                      R_insula_thickavg# 8    L_rostralanteriorcingulate_thickavg# 9    R_rostralanteriorcingulate_thickavg# 10         L_posteriorcingulate_thickavg# 11         R_posteriorcingulate_thickavg# 12             L_middletemporal_thickavg# 13           R_inferiortemporal_thickavg# 14    R_caudalanteriorcingulate_thickavg# Blood biomarkers: N = 10# 15                             s0_andrix# 16                               s0_b17o# 17                               s0_shbg# 18                        s0_testosteron# 19                        s0_cholesterol# 20                                s0_ft3# 21                                s0_hdl# 22                                s0_ft4# 23                                s0_tsh# 24                              s0_hscrp# PGRS: N = 9# 25           anxiety_pgrs_score# 26               alzheimer_pgrs# 27                mdd_23me_pgrs# 28                anorexia_pgrs# 29                     asd_pgrs# 30                 pgc_bip_pgrs# 31                 pgc_mdd_pgrs# 32             pgc_mdd_new_pgrs# 33                 pgc_scz_pgrs# Demographics: N = 53# 34                    s0_ges_fk# 35                       s0_sf1# 36                       s0_sf2# 37                    s0_migra1# 38                   s0_migra4m# 39                   s0_migra4v# 40                   s0_szstand# 41                   s0_sz_part# 42                    s0_job_f1# 43                    s0_szfam1# 44                    s0_szlage# 45                    s0_szeink# 46                  s0_szfam3_1# 47                  s0_szfam3_2# 48                  s0_szfam3_4# 49                  s0_szfam3_5# 50                  s0_szfam3_6# 51                  s0_szfam3_7# 52                  s0_szfam3_8# 53                  s0_szfam3_9# 54                 s0_szfam3_10# 55                s0_szfam3f_11# 56                s0_szfam3f_12# 57                s0_szfam3f_13# 58              s0_dx_chschmerz# 59                    s0_rls_f1# 60                    s0_rfdiat# 61                     s0_sm_f1# 62                   s0_sz_mde1# 63                    s0_minia1# 64                    s0_minia2# 65                    s0_alter1# 66                       s0_sex# 67                    s0_weight# 68                    s0_height# 69                     s0_waist# 70                    s0_edu_f1# 71                    s0_edu_f2# 72              s0_bildungsgrad# 73                     s0_pm_a2# 74                s0_pm_lifa7_a# 75                s0_pm_lifa7_b# 76                s0_pm_lifa7_c# 77                s0_pm_lifa7_d# 78                s0_pm_lifa7_e# 79                s0_pm_lifa7_f# 80              s0_pm_lifepis_n# 81                s0_pm_lif_age# 82                   s0_pm_d1_a# 83                   s0_pm_d2_a# 84                   s0_pm_o1_a# 85                     s0_pm_a4# 86                  s0_ph_inter
+# !/usr/bin/env python
+# _*_ coding: utf-8 _*_
+
+
+"""
+
+Predicting re-hospitalization within two years of admission for acute
+major depression: A multimodal machine learning approach.
+
+"""
+
+__author__ = 'Micah Cearns'
+__contact__ = 'micahcearns@gmail.com'
+__date__ = 'Jan 2019'
+
+# Misc
+from tempfile import mkdtemp
+from shutil import rmtree
+from time import time
+from tqdm import tqdm
+import pickle
+import os
+
+
+# Data manipulation
+import numpy as np
+import pandas as pd
+
+# Imputation
+from MICE import IterativeImputer
+from sklearn.preprocessing import StandardScaler
+
+# Feature selection
+from sklearn.feature_selection import SelectKBest, f_classif, SelectFromModel
+
+# Cross validation and hyperparameter optimisation
+from sklearn.model_selection import (cross_validate,
+                                     cross_val_predict,
+                                     RepeatedStratifiedKFold,
+                                     GridSearchCV,
+                                     RandomizedSearchCV,
+                                     train_test_split)
+
+# Classifiers
+from sklearn.svm import SVC
+from sklearn.linear_model import ElasticNetCV
+
+# Pipeline architecture
+from sklearn.pipeline import Pipeline
+
+# Model metrics
+from sklearn.metrics.scorer import make_scorer
+from sklearn.metrics import (precision_score,
+                             recall_score,
+                             f1_score,
+                             brier_score_loss)
+
+# Calibration
+from sklearn.calibration import calibration_curve, CalibratedClassifierCV
+
+# Plotting
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set(font_scale=2)
+sns.set_style("whitegrid")
+
+# Setting working directory
+os.chdir('/Users/MicahJackson/anaconda/pycharm_wd/hospitilization_pred')
+
+
+def pandas_config():
+    """
+
+    Pandas configuration
+
+    :return: Configured Pandas
+    """
+    options = {
+        'display': {
+            'max_columns': None,
+            'max_colwidth': 25,
+            'expand_frame_repr': False,  # Don't wrap to multiple pages
+            'max_rows': 14,
+            'max_seq_items': 50,  # Max length of printed sequence
+            'precision': 4,
+            'show_dimensions': False},  # Controls SettingWithCopyWarning
+        'mode': {
+            'chained_assignment': None
+            }
+    }
+
+    for category, option in options.items():
+        for op, value in option.items():
+            pd.set_option(f'{category}.{op}', value)
+
+    return
+
+
+def data_prep(data, y, dropna=False):
+    """
+
+    Basic data preparation function, prepares the feature matrix X and the
+    outcome vector y, sets up pseudo random number for cross-validation.
+
+    :param data: Dataframe to be partitioned into an X feature matrix and y
+                 outcome vector
+
+    :param y: Which feature to convert to an outcome vector
+
+    :param dropna: If True, drop observations with missing data
+
+    :return: X - Feature matrix
+             y - Vector of class labels
+             rand_state - Pseudo random number for repeatable cross-validation
+                          results in later analysis
+    """
+
+    rand_state = 10  # Setting random state for later cv
+    df = pd.read_pickle(data)  # Reading in data
+    if dropna is True:
+        df.dropna(axis = 0, inplace = True)
+    else:
+        pass
+    X = df.drop(y, axis = 1)  # Assigning the feature space to X
+    y = df[y]  # Class labels to predict
+
+    return X, y, rand_state
+
+
+def multi_metric_scorer():
+    """
+
+    Scoring dictionary for outer loop multi metric scoring.
+
+    :return: Dictionary of scoring metrics
+    """
+
+    scoring = {'AUC': 'roc_auc',
+               'Accuracy': 'accuracy',
+
+               'Balanced_accuracy': make_scorer(
+                   recall_score,
+                   pos_label = None,
+                   average = 'macro',
+                   sample_weight = None
+               ),
+               'Sensitivity': make_scorer(
+                   recall_score,
+                   pos_label = 1,
+                   average = 'binary',
+                   sample_weight = None
+               ),
+               'Specificity': make_scorer(
+                   recall_score,
+                   pos_label = 0,
+                   average = 'binary',
+                   sample_weight = None
+               ),
+               'F1': make_scorer(
+                   f1_score, average = 'weighted'
+               ),
+               'PPV': make_scorer(
+                   precision_score,
+                   pos_label = 1,
+                   average = 'binary'
+               ),
+               'NPV': make_scorer(
+                   precision_score, pos_label = 0, average = 'binary'
+               ),
+               'Brier_score': 'brier_score_loss'}
+
+    return scoring
+
+
+def pipeline_estimator(X,
+                       y,
+                       estimator,
+                       params,
+                       scorer,
+                       inner_cv=10,
+                       inner_repeats=5,
+                       outer_cv=10,
+                       metric='roc_auc',
+                       selector='enet',
+                       grid_search=True,
+                       n_iter=60,
+                       probas=False,
+                       n_jobs=1,
+                       random_state=10):
+    """
+
+    Pipeline for estimator training and testing. To avoid data leakage,
+    pipeline architecture ensures that all transformations are conducted
+    within the same cross-validation folds in a nested-scheme.
+
+    :param X: Feature matrix for prediction
+    :param y: Vector of outcome labels to learn and predict
+    :param estimator: Final model for fitting after transformations
+    :param params: Hyperparameter dictionary
+    :param scorer: Scoring dictionary for outer loop multi metric scoring
+    :param inner_cv: Number of inner loop cross-validation folds
+    :param inner_repeats: Number of inner loop cross-validation repeats
+    :param outer_cv: Number of outer loop cross-validation folds
+    :param metric: Metric to optimize in model training
+    :param selector: Feature selection method, Elastic net or f-tests
+    :param probas: If true, use cross_val_predict and return a vector of
+                   predicted probabilities, if False, run cross_validate
+    :param n_jobs: How many cores to run for model fitting
+    :param random_state: Pseudo random number for repeatable cross-validation
+                         results
+
+    :return: scores - Train and test scores
+             tuned_pipe - Fitted and tuned pipeline
+             rkfold - rkfold object
+             cachedir - cache directory to avoid repeat computation
+    """
+
+    # Setting up repeated cross validation
+    rkfold = RepeatedStratifiedKFold(
+        n_splits = inner_cv,
+        n_repeats = inner_repeats,
+        random_state = random_state
+    )
+    # MICE imputation
+    imputer = IterativeImputer(
+        n_nearest_features = 10,
+        min_value = -5000.0,
+        max_value = 5000.0,
+        random_state = random_state
+    )
+    # Mean centering the data for the linear svm
+    scaler = StandardScaler(with_mean = True, with_std = True)
+
+    # Feature selection
+    if selector is 'enet':
+        selector = SelectFromModel(
+            estimator = ElasticNetCV(
+                cv = 5,
+                n_alphas = 10,
+                alphas = np.arange(0.1, 1.1, 0.1),
+                max_iter = -1,
+                verbose = False,
+                random_state = random_state
+            ),
+            threshold = -np.inf,
+            max_features = 25,
+        )
+        # selector = SelectFromModel(
+        #     estimator = ElasticNet(max_iter = -1,
+        #                            random_state = random_state),
+        #     threshold = -np.inf,
+        #     max_features = 25,
+        # )
+    elif selector is 'f-test':
+        selector = SelectKBest(score_func = f_classif)
+    else:
+        pass
+
+    # sampler = SMOTE(random_state = random_state)
+
+    # Temp directory to avoid repeat computation
+    cachedir = mkdtemp()
+    # Pipeline steps
+    pipe_params = [
+        ('imputer', imputer),
+        ('scaler', scaler),
+        # ('selector', selector),
+        ('clf', estimator)
+    ]
+    pipe = Pipeline(pipe_params, memory = cachedir)
+
+    if grid_search is True:
+        # Establishing a grid search for hyperparameter optimisation
+        tuned_pipe = GridSearchCV(
+            estimator = pipe,
+            cv = rkfold,
+            param_grid = params,
+            scoring = metric,
+            refit = True,
+            n_jobs = n_jobs,
+            iid = True,
+            verbose = False
+        )
+    elif grid_search is False:
+        tuned_pipe = RandomizedSearchCV(
+            estimator = pipe,
+            cv = rkfold,
+            param_distributions = params,
+            scoring = metric,
+            n_iter = n_iter,
+            refit = True,
+            n_jobs = n_jobs,
+            iid = True,
+            verbose = False,
+            random_state = random_state
+        )
+    else:
+        raise ValueError('Must specify grid_search = True or False')
+
+    if probas is True:  # Outer cross validation loop
+        scores = cross_val_predict(
+            estimator = tuned_pipe,
+            X = X,
+            y = y,
+            cv = outer_cv,
+            n_jobs = n_jobs,
+            method = 'predict_proba'  # Returns probs, not [0,1]
+        )
+    elif probas is False:
+        scores = cross_validate(
+            estimator = tuned_pipe,
+            X = X,
+            y = y,
+            scoring = scorer,
+            cv = outer_cv,
+            return_train_score = True,
+            n_jobs = n_jobs
+        )
+    else:
+        raise ValueError('Must specify True or False for probas')
+
+    return scores, tuned_pipe, rkfold, cachedir
+
+
+def reliability_curve(tuned_pipe, X, y):
+    """
+
+    :param tuned_pipe: Grid search instance from pipeline estimator
+    :param X: Feature matrix X in the form of a Pandas dataframe
+    :param y: Outcome vector y, in the form of a Pandas series
+
+    :return: Reliability curve
+    """
+
+    # Calibrated pipeline
+    sigmoid = CalibratedClassifierCV(
+        base_estimator = tuned_pipe, method = 'sigmoid', cv = 10
+    )
+    pred_probas = sigmoid.fit(X, y).predict_proba(X)[:, 1]
+    fraction_of_positives, mean_predicted_value = calibration_curve(
+        y_true = y, y_prob = pred_probas, normalize = False, n_bins = 10
+    )
+    # Brier score loss
+    bs = brier_score_loss(
+        y_true = y, y_prob = pred_probas, sample_weight = None, pos_label = 1
+    )
+    fig = plt.figure(1, figsize = (10, 10))
+    ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan = 2)
+    ax2 = plt.subplot2grid((3, 1), (2, 0))
+    ax1.plot([0, 1], [0, 1], "k:", label = "Perfectly calibrated")
+    ax1.plot(mean_predicted_value,
+             fraction_of_positives, "s-", label = "%s (%1.3f)" %
+                                                  ('Brier Score', bs))
+    ax2.hist(pred_probas,
+             range = (0, 1),
+             bins = 10,
+             label = 'Multimodal SVM + Sigmoid calibration',
+             histtype = "step",
+             lw = 2)
+    ax1.set_ylabel("Fraction of positives")
+    ax1.set_ylim([-0.05, 1.05])
+    ax1.legend(loc = "lower right")
+    ax1.set_title('Calibration plot  (reliability curve)')
+    ax2.set_xlabel("Mean predicted value")
+    ax2.set_ylabel("Count")
+    ax2.legend(loc = "upper right", ncol = 2)
+    plt.tight_layout()
+    plt.show()
+
+    return
+
+
+def serialize_model(model, X, y):
+    """
+
+    Function to serialize the trained model for open sourcing on the Photon
+    AI repository
+
+    To load model and predict:
+    with open(pkl_filename, 'rb') as file:
+        pickle_model = pickle.load(file)
+
+    Scoring:
+    score = pickle_model.score(X_test, y_test)
+    print("Test score: {0:.2f} %".format(100 * score))
+
+    Get a prediction array for each target:
+    y_pred = pickle_model.predict(X_test)
+
+    :param model: Gridsearch object with nested pipeline
+    :param X: Predictor matrix
+    :param y: Outcome vector {0,1}
+
+    :return: Serialized model file in pickle format saved to the working
+             directory
+    """
+
+    # Fitting the model to the full dataset
+    model.fit(X, y)
+    # Pickling
+    pkl_filename = 'rehosp_model.pkl'
+    with open(pkl_filename, 'wb') as file:
+        pickle.dump(model, file)
+
+    return
+
+
+def train_test_scores(estimator_scores):
+    """
+
+    Scoring function for cross-validated pipeline results
+
+    :param estimator_scores: Train and test scores from pipeline estimator
+
+    :return: train_results - Train partition results
+             test_results - Test partition results
+    """
+
+    # Converting the dictionary of scores from cross_validate to a dataframe
+    # and dropping unnecessary rows
+    scores_df = (pd
+                 .DataFrame
+                 .from_dict(estimator_scores)
+                 .drop(['fit_time', 'score_time'], axis = 1))
+    # Getting mean scores and standard deviations from repeated cv
+    scores_mean = np.abs(scores_df.mean() * 100)
+    scores_std = np.abs(scores_df.std() * 100)
+    # Returning results as pandas dataframe
+    results = pd.DataFrame({'Accuracy': scores_mean,
+                            'Standard Deviation': scores_std})
+    # Sub-setting train and test results into their own dataframes
+    train_results = np.round(results.iloc[list(range(1, 19, 2))], decimals = 4)
+    test_results = np.round(results.iloc[list(range(0, 18, 2))], decimals = 4)
+    # Returning Brier scores back to a value between 0 and 1
+    train_results.iloc[8] = (train_results.iloc[8]/100)
+    test_results.iloc[8] = (test_results.iloc[8]/100)
+
+    return train_results, test_results, scores_df
+
+
+def kbest(X, y, select_method, pipeline):
+    """
+
+    Elastic net or univariate f-test based feature selection.
+
+    :param X: Feature matrix for prediction
+    :param y: Vector of outcome labels
+    :param select_method: The elastic net of f-tests
+    :param pipeline: Pipeline estimator for fitting with final selected
+                     features
+
+    :return: kbest_df - Dataframe of final selected features
+             params_df - Dataframe of the selected hyperparameters
+             best_inner_cv_test_score - Best grid search score for model
+             selection
+    """
+
+    pipe = pipeline.fit(X = X, y = y)  # Fit the tuned pipe to the whole dataset
+    # if select_method is 'enet':
+    #     coefs = (pipe
+    #              .best_estimator_
+    #              .named_steps['selector']
+    #              .estimator_  # This is an attribute from SelectFromModel
+    #              .coef_[pipe
+    #                     .best_estimator_
+    #                     .named_steps['selector']
+    #                     .get_support()])  # Integer index of selected feats
+    # elif select_method is 'f-test':
+    #     coefs = (pipe
+    #              .best_estimator_
+    #              .named_steps['selector']
+    #              .scores_[pipe
+    #                       .named_steps['selector']
+    #                       .get_support()])
+    # else:
+    #     raise ValueError("""Must specify feature selection technique
+    #                      in select method""")
+
+    # Getting weights from the linear SVM
+    svm_weights = pipe.best_estimator_.named_steps['clf'].coef_.ravel()
+    # # Getting feature names
+    # names = (X
+    #          .columns
+    #          .values[pipe
+    #                  .best_estimator_
+    #                  .named_steps['selector']
+    #                  .get_support()])
+    names = X.columns.values
+    names_scores = list(zip(names, svm_weights))  # coefs
+    kbest_df = (pd
+                .DataFrame(data = names_scores,
+                           columns = ['Features', 'Weights'])
+                .sort_values(by = 'Weights', ascending = False))
+    optimal_params = pipeline.best_params_  # Getting the tuned parameters
+    params_df = pd.DataFrame.from_dict(
+        data = optimal_params, orient = 'index', columns = ['Parameters']
+    )
+    best_inner_cv_test_score = pipeline.best_score_  # Best hyper-param score
+    # if select_method is 'enet':
+    #     # Filtering out zeroed coefficients from the elastic net that were not
+    #     # removed in SelectFromModel
+    #     kbest_df = kbest_df.loc[(kbest_df['Coefs'] != 0.000000)
+    #                             | kbest_df['Coefs'] != -0.000000]
+    #     # Final constant regularization value (alpha) used in the elastic net
+    #     alpha = (np
+    #              .round(pipe
+    #                     .best_estimator_
+    #                     .named_steps['selector']
+    #                     .estimator_
+    #                     .coef_,
+    #                     decimals = 4))
+
+        # alpha = (np
+        #          .round(pipe
+        #                 .best_estimator_
+        #                 .named_steps['selector']
+        #                 .estimator_
+        #                 .alpha_,
+        #                 decimals = 4))
+        # # The grid of alphas used for fitting each l1 ratio
+        # alphas = (np
+        #           .round(pipe
+        #                  .best_estimator_
+        #                  .named_steps['selector']
+        #                  .estimator_
+        #                  .alphas_,
+        #                  decimals = 4))
+
+    #     return pipe, kbest_df, params_df, best_inner_cv_test_score, alpha
+    # else:
+    return pipe, kbest_df, params_df, best_inner_cv_test_score
+
+
+def manual_perm_test(model: 'Fitted sklearn estimator',
+                     X: 'Pandas df',
+                     y: 'Pandas series',
+                     true_score: float,
+                     n_permutations: int=100,
+                     plot: bool=True,
+                     clf: bool=False) -> 'p-value, null_counts':
+    """
+
+    :param model: Fitted sklearn estimator object
+    :param X: Feature matrix for prediction
+    :param y: Vector of outcome labels
+    :param true_score: Final score from the outer cross-validation loop
+    :param n_permutations: Number of permutations to build the null distribution
+    :param plot: If true, plot the null distribution and fitted estimator score
+    :param clf: If True, model param is a classification estimator and not an
+                a regression estimator
+
+    :return: p_value - p value for the fitted estimator
+             null_counts - The number of times a null score that was greater or
+             equal to the fitted estimator score appears in the null
+             distribution
+    """
+
+    scores = []  # Empty list for null distribution scores
+    n_perms = range(1, n_permutations, 1)  # Range of values to permute
+    for n in tqdm(n_perms, desc = 'Permutation test'):  # tqdm for progress bar
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, stratify = y, test_size = 0.90, random_state = n
+        )
+        model.fit(X_train, y_train)
+        y_test_perm = np.random.permutation(y_test)  # Permuting class labels
+        chance_scores = round(model.score(X = X_test, y = y_test_perm), 4)
+        scores.append(chance_scores)
+
+    # Converting to a pandas dataframe
+    perm_scores_df = pd.DataFrame(data = scores, columns = ['null_dist'])
+    perm_scores_df['null_dist'] *= 100
+    null_counts = (
+        perm_scores_df  # Counts greater than or equal to our test set score
+        .loc[(perm_scores_df['null_dist']) >= true_score]
+        .count()
+        .iloc[0]
+    )
+    p_value = (null_counts + 1) / (n_permutations + 1)
+    p_value = np.round(p_value, decimals = 5)
+
+    if plot is True:  # Plotting a histogram of permutation scores
+        plt.figure(figsize = (10, 10))
+        sns.distplot(a = perm_scores_df['null_dist'],
+                     hist = True,
+                     label = 'Permutation scores')
+        ylim = plt.ylim()
+        if clf is False:
+            # True classifier score and p-value
+            plt.plot(2 * [true_score],
+                     ylim,
+                     '--g',
+                     linewidth = 3,
+                     label = 'R2 score %s (pvalue : %s)' %
+                             (true_score, p_value))
+        else:
+            plt.plot(2 * [true_score],
+                     ylim,
+                     '--g',
+                     linewidth = 3,
+                     label = 'Multimodal AUC score: %s (pvalue = %s)' %
+                             (true_score, p_value))
+            n_classes = np.unique(y).size
+            chance = 2 * [100. / n_classes]
+            plt.plot(chance,
+                     ylim,
+                     '--k',
+                     linewidth = 3,
+                     label = 'Null model mean AUC score: %s' % 50.00)
+        # Plotting distribution and results
+        plt.ylim(ylim)
+        plt.legend(loc = 'lower center', bbox_to_anchor = (0.5, -0.38))
+        plt.tight_layout()
+
+        if clf is False:
+            plt.xlabel(xlabel = 'R2 Scores')
+        else:
+            plt.xlabel(xlabel = 'AUC Scores')
+        plt.title(label = 'Null Distribution')
+        plt.savefig('quadratic_null_dist.png', dpi = 300, bbox_inches = 'tight')
+        plt.show()
+
+    return p_value, null_counts
+
+
+def main():
+
+    print(__doc__)
+    os.environ['PYTHONWARNINGS'] = 'ignore'
+    start_time = time()
+    pandas_config()
+    # # Preparing data
+    # X, y, rand_state = data_prep(
+    #     data = 'multi_cleaned_hospital_bidirect_df.pkl',
+    #     y = 'relapse',
+    #     dropna = False
+    # )
+
+    # Preparing data
+    X, y, rand_state = data_prep(
+        data = 'subset_multi_df_cleaned_psqi7.pkl',
+        y = 'relapse',
+    )
+    X = X[['pi_n_epi_inpatient',
+           'cesd5',
+           'psqi_sum',
+           'med_n05ah',
+           'psqi7',
+           'Rhippo',
+           'cesd3',
+           'cholesterol',
+           'med_h03',
+           'al_f1']]
+
+    # Linear SVM
+    svc = SVC(
+        C = 0.001,
+        kernel = 'linear',
+        class_weight = 'balanced',
+        probability = True,  # Implements Platt scaling
+        random_state = rand_state
+    )
+    # Hyperparameter grid
+    svc_params = {
+        'clf__C': [0.001, 0.01],  # 0.1, 1.0
+        # 'selector__estimator__l1_ratio': [0.1, 0.5, 0.7, 0.9, 0.95, 0.99],
+        # 'selector__estimator__alpha': np.arange(0.2, 1.2, 0.2),
+    }
+    # 'selector__estimator__l1_ratio': [0.1, 0.5, 0.9]}
+
+    # 'selector__max_features': [5, 10, 15]}
+    # svc_params = {'clf__C': [0.001, 0.001, 0.1, 1.0]}
+
+    # Setting up multi-metric evaluation
+    scorer = multi_metric_scorer()
+
+    # Running pipeline
+    scores, tuned_pipe, rkfold, cachedir = pipeline_estimator(
+        X = X,
+        y = y,
+        estimator = svc,
+        params = svc_params,
+        scorer = scorer,
+        inner_cv = 2,
+        inner_repeats = 2,
+        outer_cv = 2,
+        metric = 'roc_auc',
+        selector = 'enet',
+        grid_search = True,
+        n_iter = 2,
+        probas = False,
+        n_jobs = -2,
+        random_state = rand_state
+    )
+    # reliability_curve(tuned_pipe = tuned_pipe, X = X, y = y)
+    # Train / test results
+    train_results, test_results, scores_df = train_test_scores(
+        estimator_scores = scores
+    )
+    # Clearing the cache directory
+    rmtree(cachedir)
+    # # Serializing the model
+    # serialize_model(model = tuned_pipe, X = X, y = y)
+
+    # Kbest features from the elastic net
+    pipe, top_features, params_df, best_inner_cv_test_score = kbest(
+        X = X, y = y, select_method = 'enet', pipeline = tuned_pipe
+    )
+    # Using a permutation test to test the significance of the classifier
+    p_value, null_counts = manual_perm_test(
+        model = pipe,
+        X = X,
+        y = y,
+        true_score = 67.74,
+        n_permutations = 10000,
+        plot = True,
+        clf = True
+    )
+    # Output
+    stop_time = time()
+    run_time = np.round((stop_time - start_time) / 60, decimals = 2)
+    best_inner_cv_test_score = np.round(best_inner_cv_test_score, decimals = 4)
+    output = (('Best inner CV score = {score}'
+               .format(score = best_inner_cv_test_score)), '',
+              'Train results:', train_results, '',
+              'Test results:', test_results, '',
+              'Features selected by the Elastic Net:', top_features, '',
+              'Hyperparameters selected in CV:', params_df, '',
+              # 'Final elastic net alpha value:', alpha, '',
+              # 'Elastic net alphas searched in CV:', alphas, '',
+              'p value:', p_value, '',
+              'Null counts:', null_counts, '',
+              'Run time = {timer} minutes'.format(timer = run_time))
+
+    return print(*output, sep = '\n')
+
+
+if __name__ == '__main__':
+    print(main())
+
+    
+    
+    
