@@ -103,9 +103,7 @@ def data_prep(data, y, dropna=False):
 
     :param data: Dataframe to be partitioned into an X feature matrix and y
                  outcome vector
-
     :param y: Which feature to convert to an outcome vector
-
     :param dropna: If True, drop observations with missing data
 
     :return: X - Feature matrix
@@ -181,17 +179,13 @@ def pipeline_estimator(X,
                        outer_cv=10,
                        metric='roc_auc',
                        selector='enet',
-                       grid_search=True,
-                       n_iter=60,
                        probas=False,
                        n_jobs=1,
                        random_state=10):
     """
-
     Pipeline for estimator training and testing. To avoid data leakage,
     pipeline architecture ensures that all transformations are conducted
     within the same cross-validation folds in a nested-scheme.
-
     :param X: Feature matrix for prediction
     :param y: Vector of outcome labels to learn and predict
     :param estimator: Final model for fitting after transformations
@@ -203,11 +197,10 @@ def pipeline_estimator(X,
     :param metric: Metric to optimize in model training
     :param selector: Feature selection method, Elastic net or f-tests
     :param probas: If true, use cross_val_predict and return a vector of
-                   predicted probabilities, if False, run cross_validate
+                   predicted probabilities, if False, run cross_validate    
     :param n_jobs: How many cores to run for model fitting
     :param random_state: Pseudo random number for repeatable cross-validation
                          results
-
     :return: scores - Train and test scores
              tuned_pipe - Fitted and tuned pipeline
              rkfold - rkfold object
@@ -215,158 +208,67 @@ def pipeline_estimator(X,
     """
 
     # Setting up repeated cross validation
-    rkfold = RepeatedStratifiedKFold(
-        n_splits = inner_cv,
-        n_repeats = inner_repeats,
-        random_state = random_state
-    )
+    rkfold = RepeatedStratifiedKFold(n_splits=inner_cv,
+                                     n_repeats=inner_repeats,
+                                     random_state=random_state)
     # MICE imputation
-    imputer = IterativeImputer(
-        n_nearest_features = 10,
-        min_value = -5000.0,
-        max_value = 5000.0,
-        random_state = random_state
-    )
+    imputer = IterativeImputer(n_nearest_features=10,
+                               min_value=-5000.0,
+                               max_value=5000.0,
+                               random_state=random_state)
+
     # Mean centering the data for the linear svm
-    scaler = StandardScaler(with_mean = True, with_std = True)
+    scaler = StandardScaler(with_mean=True, with_std=True)
 
     # Feature selection
     if selector is 'enet':
         selector = SelectFromModel(
-            estimator = ElasticNetCV(
-                cv = 5,
-                n_alphas = 10,
-                alphas = np.arange(0.1, 1.1, 0.1),
-                max_iter = -1,
-                verbose = False,
-                random_state = random_state
-            ),
-            threshold = -np.inf,
-            max_features = 25,
+            estimator=SGDClassifier(loss='log',
+                                    penalty='elasticnet',
+                                    random_state=random_state),,
+            threshold = -np.inf
         )
-        # selector = SelectFromModel(
-        #     estimator = ElasticNet(max_iter = -1,
-        #                            random_state = random_state),
-        #     threshold = -np.inf,
-        #     max_features = 25,
-        # )
     elif selector is 'f-test':
-        selector = SelectKBest(score_func = f_classif)
+        selector = SelectKBest(score_func=f_classif)
     else:
         pass
 
-    # sampler = SMOTE(random_state = random_state)
+    # Setting up pipeline steps
+    cachedir = mkdtemp()  # Temp directory to avoid repeat computation
+    pipe_params = [('imputer', imputer),
+                   ('scaler', scaler),
+                   ('selector', selector),
+                   ('clf', estimator)]
+    pipe = Pipeline(pipe_params, memory=cachedir)
+    
+    # Establishing a grid search for hyperparameter optimisation
+    tuned_pipe = GridSearchCV(estimator=pipe,
+                              cv=rkfold,
+                              param_grid=params,
+                              scoring=metric,
+                              refit=True,
+                              n_jobs=n_jobs)
 
-    # Temp directory to avoid repeat computation
-    cachedir = mkdtemp()
-    # Pipeline steps
-    pipe_params = [
-        ('imputer', imputer),
-        ('scaler', scaler),
-        # ('selector', selector),
-        ('clf', estimator)
-    ]
-    pipe = Pipeline(pipe_params, memory = cachedir)
-
-    if grid_search is True:
-        # Establishing a grid search for hyperparameter optimisation
-        tuned_pipe = GridSearchCV(
-            estimator = pipe,
-            cv = rkfold,
-            param_grid = params,
-            scoring = metric,
-            refit = True,
-            n_jobs = n_jobs,
-            iid = True,
-            verbose = False
-        )
-    elif grid_search is False:
-        tuned_pipe = RandomizedSearchCV(
-            estimator = pipe,
-            cv = rkfold,
-            param_distributions = params,
-            scoring = metric,
-            n_iter = n_iter,
-            refit = True,
-            n_jobs = n_jobs,
-            iid = True,
-            verbose = False,
-            random_state = random_state
-        )
-    else:
-        raise ValueError('Must specify grid_search = True or False')
-
-    if probas is True:  # Outer cross validation loop
-        scores = cross_val_predict(
-            estimator = tuned_pipe,
-            X = X,
-            y = y,
-            cv = outer_cv,
-            n_jobs = n_jobs,
-            method = 'predict_proba'  # Returns probs, not [0,1]
-        )
+    # Outer cross validation loop with nested inner cross validation
+    if probas is True:
+        scores = cross_val_predict(estimator=tuned_pipe,
+                                   X=X,
+                                   y=y,
+                                   cv=outer_cv,
+                                   n_jobs=n_jobs,
+                                   method='predict_proba')
     elif probas is False:
-        scores = cross_validate(
-            estimator = tuned_pipe,
-            X = X,
-            y = y,
-            scoring = scorer,
-            cv = outer_cv,
-            return_train_score = True,
-            n_jobs = n_jobs
-        )
+        scores = cross_validate(estimator=tuned_pipe,
+                                X=X,
+                                y=y,
+                                scoring=scorer,
+                                cv=outer_cv,
+                                return_train_score=True,
+                                n_jobs=n_jobs)
     else:
         raise ValueError('Must specify True or False for probas')
 
     return scores, tuned_pipe, rkfold, cachedir
-
-
-def reliability_curve(tuned_pipe, X, y):
-    """
-
-    :param tuned_pipe: Grid search instance from pipeline estimator
-    :param X: Feature matrix X in the form of a Pandas dataframe
-    :param y: Outcome vector y, in the form of a Pandas series
-
-    :return: Reliability curve
-    """
-
-    # Calibrated pipeline
-    sigmoid = CalibratedClassifierCV(
-        base_estimator = tuned_pipe, method = 'sigmoid', cv = 10
-    )
-    pred_probas = sigmoid.fit(X, y).predict_proba(X)[:, 1]
-    fraction_of_positives, mean_predicted_value = calibration_curve(
-        y_true = y, y_prob = pred_probas, normalize = False, n_bins = 10
-    )
-    # Brier score loss
-    bs = brier_score_loss(
-        y_true = y, y_prob = pred_probas, sample_weight = None, pos_label = 1
-    )
-    fig = plt.figure(1, figsize = (10, 10))
-    ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan = 2)
-    ax2 = plt.subplot2grid((3, 1), (2, 0))
-    ax1.plot([0, 1], [0, 1], "k:", label = "Perfectly calibrated")
-    ax1.plot(mean_predicted_value,
-             fraction_of_positives, "s-", label = "%s (%1.3f)" %
-                                                  ('Brier Score', bs))
-    ax2.hist(pred_probas,
-             range = (0, 1),
-             bins = 10,
-             label = 'Multimodal SVM + Sigmoid calibration',
-             histtype = "step",
-             lw = 2)
-    ax1.set_ylabel("Fraction of positives")
-    ax1.set_ylim([-0.05, 1.05])
-    ax1.legend(loc = "lower right")
-    ax1.set_title('Calibration plot  (reliability curve)')
-    ax2.set_xlabel("Mean predicted value")
-    ax2.set_ylabel("Count")
-    ax2.legend(loc = "upper right", ncol = 2)
-    plt.tight_layout()
-    plt.show()
-
-    return
 
 
 def serialize_model(model, X, y):
@@ -439,102 +341,78 @@ def train_test_scores(estimator_scores):
 
 def kbest(X, y, select_method, pipeline):
     """
-
     Elastic net or univariate f-test based feature selection.
-
     :param X: Feature matrix for prediction
     :param y: Vector of outcome labels
     :param select_method: The elastic net of f-tests
     :param pipeline: Pipeline estimator for fitting with final selected
                      features
-
     :return: kbest_df - Dataframe of final selected features
              params_df - Dataframe of the selected hyperparameters
              best_inner_cv_test_score - Best grid search score for model
              selection
     """
 
-    pipe = pipeline.fit(X = X, y = y)  # Fit the tuned pipe to the whole dataset
-    # if select_method is 'enet':
-    #     coefs = (pipe
-    #              .best_estimator_
-    #              .named_steps['selector']
-    #              .estimator_  # This is an attribute from SelectFromModel
-    #              .coef_[pipe
-    #                     .best_estimator_
-    #                     .named_steps['selector']
-    #                     .get_support()])  # Integer index of selected feats
-    # elif select_method is 'f-test':
-    #     coefs = (pipe
-    #              .best_estimator_
-    #              .named_steps['selector']
-    #              .scores_[pipe
-    #                       .named_steps['selector']
-    #                       .get_support()])
-    # else:
-    #     raise ValueError("""Must specify feature selection technique
-    #                      in select method""")
-
-    # Getting weights from the linear SVM
-    svm_weights = pipe.best_estimator_.named_steps['clf'].coef_.ravel()
-    # # Getting feature names
-    # names = (X
-    #          .columns
-    #          .values[pipe
-    #                  .best_estimator_
-    #                  .named_steps['selector']
-    #                  .get_support()])
-    names = X.columns.values
-    names_scores = list(zip(names, svm_weights))  # coefs
+    # Fitting the tuned pipeline to the whole dataset and extracting the
+    # selected features
+    pipe = pipeline.fit(X=X, y=y)
+    if select_method is 'enet':
+        coefs = (pipe
+                 .best_estimator_
+                 .named_steps['selector']
+                 .estimator_
+                 .coef_[pipe
+                        .best_estimator_
+                        .named_steps['selector']
+                        .get_support()])
+    elif select_method is 'f-test':
+        coefs = (pipe
+                 .best_estimator_
+                 .named_steps['selector']
+                 .scores_[pipe
+                          .named_steps['selector']
+                          .get_support()])
+    else:
+        raise ValueError("""Must specify feature selection technique 
+                         in select method""")
+    # Getting feature names
+    names = (X
+             .columns
+             .values[pipe
+                     .best_estimator_
+                     .named_steps['selector']
+                     .get_support()])
+    names_scores = list(zip(names, coefs))
     kbest_df = (pd
-                .DataFrame(data = names_scores,
-                           columns = ['Features', 'Weights'])
-                .sort_values(by = 'Weights', ascending = False))
-    optimal_params = pipeline.best_params_  # Getting the tuned parameters
-    params_df = pd.DataFrame.from_dict(
-        data = optimal_params, orient = 'index', columns = ['Parameters']
-    )
-    best_inner_cv_test_score = pipeline.best_score_  # Best hyper-param score
-    # if select_method is 'enet':
-    #     # Filtering out zeroed coefficients from the elastic net that were not
-    #     # removed in SelectFromModel
-    #     kbest_df = kbest_df.loc[(kbest_df['Coefs'] != 0.000000)
-    #                             | kbest_df['Coefs'] != -0.000000]
-    #     # Final constant regularization value (alpha) used in the elastic net
-    #     alpha = (np
-    #              .round(pipe
-    #                     .best_estimator_
-    #                     .named_steps['selector']
-    #                     .estimator_
-    #                     .coef_,
-    #                     decimals = 4))
+                .DataFrame(data=names_scores,
+                           columns=['Features',
+                                    'Coefs'])
+                .sort_values(by='Coefs',
+                             ascending=False))
 
-        # alpha = (np
-        #          .round(pipe
-        #                 .best_estimator_
-        #                 .named_steps['selector']
-        #                 .estimator_
-        #                 .alpha_,
-        #                 decimals = 4))
-        # # The grid of alphas used for fitting each l1 ratio
-        # alphas = (np
-        #           .round(pipe
-        #                  .best_estimator_
-        #                  .named_steps['selector']
-        #                  .estimator_
-        #                  .alphas_,
-        #                  decimals = 4))
+    # Filtering out zeroed coefficients from the elastic net that were not
+    # removed in SelectFromModel
+    if select_method is 'enet':
+        kbest_df = kbest_df.loc[(kbest_df['Coefs'] != 0.000000)
+                                | kbest_df['Coefs'] != -0.000000]
+    else:
+        pass
 
-    #     return pipe, kbest_df, params_df, best_inner_cv_test_score, alpha
-    # else:
-    return pipe, kbest_df, params_df, best_inner_cv_test_score
+    # Getting the tuned parameters
+    optimal_params = pipeline.best_params_
+    params_df = pd.DataFrame.from_dict(data=optimal_params,
+                                       orient='index',
+                                       columns=['Parameters'])
+    best_inner_cv_test_score = pipeline.best_score_
+
+    return kbest_df, params_df, best_inner_cv_test_score
 
 
 def manual_perm_test(model: 'Fitted sklearn estimator',
                      X: 'Pandas df',
                      y: 'Pandas series',
                      true_score: float,
-                     n_permutations: int=100,
+                     n_permutations: int=10000,
                      plot: bool=True,
                      clf: bool=False) -> 'p-value, null_counts':
     """
@@ -605,7 +483,7 @@ def manual_perm_test(model: 'Fitted sklearn estimator',
                      '--k',
                      linewidth = 3,
                      label = 'Null model mean AUC score: %s' % 50.00)
-        # Plotting distribution and results
+            
         plt.ylim(ylim)
         plt.legend(loc = 'lower center', bbox_to_anchor = (0.5, -0.38))
         plt.tight_layout()
@@ -623,112 +501,86 @@ def manual_perm_test(model: 'Fitted sklearn estimator',
 
 def main():
 
-    print(__doc__)
-    os.environ['PYTHONWARNINGS'] = 'ignore'
+    print('Running main()')
     start_time = time()
-    pandas_config()
-    # # Preparing data
-    # X, y, rand_state = data_prep(
-    #     data = 'multi_cleaned_hospital_bidirect_df.pkl',
-    #     y = 'relapse',
-    #     dropna = False
-    # )
 
     # Preparing data
     X, y, rand_state = data_prep(
-        data = 'subset_multi_df_cleaned_psqi7.pkl',
-        y = 'relapse',
+        data='multi_cleaned_hospital_bidirect_df.pkl',
+        y='relapse',
+        dropna=False
     )
-    X = X[['pi_n_epi_inpatient',
-           'cesd5',
-           'psqi_sum',
-           'med_n05ah',
-           'psqi7',
-           'Rhippo',
-           'cesd3',
-           'cholesterol',
-           'med_h03',
-           'al_f1']]
-
     # Linear SVM
-    svc = SVC(
-        C = 0.001,
-        kernel = 'linear',
-        class_weight = 'balanced',
-        probability = True,  # Implements Platt scaling
-        random_state = rand_state
-    )
-    # Hyperparameter grid
-    svc_params = {
-        'clf__C': [0.001, 0.01],  # 0.1, 1.0
-        # 'selector__estimator__l1_ratio': [0.1, 0.5, 0.7, 0.9, 0.95, 0.99],
-        # 'selector__estimator__alpha': np.arange(0.2, 1.2, 0.2),
-    }
-    # 'selector__estimator__l1_ratio': [0.1, 0.5, 0.9]}
+    svc = SVC(kernel='linear',
+              class_weight='balanced',
+              probability=True,  # For sigmoid calibration
+              random_state=rand_state)
 
-    # 'selector__max_features': [5, 10, 15]}
-    # svc_params = {'clf__C': [0.001, 0.001, 0.1, 1.0]}
+    # Hyperparameter grid
+    svc_params = {'clf__C': [0.001, 0.01, 0.1, 1.0],
+                  'selector__estimator__l1_ratio': [0.1, 0.5, 0.7, 0.9, 0.95, 0.99],
+                  'selector__estimator__alpha': np.arange(0.1, 1.1, 0.1)}
 
     # Setting up multi-metric evaluation
     scorer = multi_metric_scorer()
 
     # Running pipeline
-    scores, tuned_pipe, rkfold, cachedir = pipeline_estimator(
-        X = X,
-        y = y,
-        estimator = svc,
-        params = svc_params,
-        scorer = scorer,
-        inner_cv = 2,
-        inner_repeats = 2,
-        outer_cv = 2,
-        metric = 'roc_auc',
-        selector = 'enet',
-        grid_search = True,
-        n_iter = 2,
-        probas = False,
-        n_jobs = -2,
-        random_state = rand_state
-    )
-    # reliability_curve(tuned_pipe = tuned_pipe, X = X, y = y)
+    (scores,
+     tuned_pipe,
+     rkfold,
+     cachedir) = pipeline_estimator(X=X,
+                                    y=y,
+                                    estimator=svc,
+                                    params=svc_params,
+                                    scorer=scorer,
+                                    inner_cv=10,
+                                    inner_repeats=5,
+                                    outer_cv=10,
+                                    metric='roc_auc',
+                                    selector='enet',
+                                    probas=False,
+                                    n_jobs=1,
+                                    random_state=rand_state)
+
     # Train / test results
-    train_results, test_results, scores_df = train_test_scores(
-        estimator_scores = scores
-    )
+    (train_results,
+     test_results,
+     scores_df) = train_test_scores(estimator_scores=scores)
+
     # Clearing the cache directory
     rmtree(cachedir)
-    # # Serializing the model
-    # serialize_model(model = tuned_pipe, X = X, y = y)
+
+    # Serializing the model
+    serialize_model(model=tuned_pipe, X=X, y=y)
 
     # Kbest features from the elastic net
-    pipe, top_features, params_df, best_inner_cv_test_score = kbest(
-        X = X, y = y, select_method = 'enet', pipeline = tuned_pipe
-    )
+    (top_features,
+     params_df,
+     best_inner_cv_test_score) = kbest(X=X,
+                                       y=y,
+                                       select_method='enet',
+                                       pipeline=tuned_pipe)
+
     # Using a permutation test to test the significance of the classifier
-    p_value, null_counts = manual_perm_test(
-        model = pipe,
-        X = X,
-        y = y,
-        true_score = 67.74,
-        n_permutations = 10000,
-        plot = True,
-        clf = True
-    )
+    permutation_test(estimator=tuned_pipe,
+                     X=X,
+                     y=y,
+                     scoring='roc_auc',
+                     cv=10,
+                     n_permutations=10000,
+                     plot=True,
+                     n_jobs=-1,
+                     random_state=rand_state)
+
     # Output
     stop_time = time()
     run_time = np.round((stop_time - start_time) / 60, decimals = 2)
-    best_inner_cv_test_score = np.round(best_inner_cv_test_score, decimals = 4)
-    output = (('Best inner CV score = {score}'
-               .format(score = best_inner_cv_test_score)), '',
-              'Train results:', train_results, '',
-              'Test results:', test_results, '',
-              'Features selected by the Elastic Net:', top_features, '',
-              'Hyperparameters selected in CV:', params_df, '',
-              # 'Final elastic net alpha value:', alpha, '',
-              # 'Elastic net alphas searched in CV:', alphas, '',
-              'p value:', p_value, '',
-              'Null counts:', null_counts, '',
-              'Run time = {timer} minutes'.format(timer = run_time))
+    output = (best_inner_cv_test_score, '',
+              train_results, '',
+              test_results, '',
+              top_features, '',
+              params_df, '',
+              print('Run time = {timer} minutes'.format(timer = run_time)))
 
     return print(*output, sep = '\n')
 
@@ -736,6 +588,4 @@ def main():
 if __name__ == '__main__':
     print(main())
 
-    
-    
     
