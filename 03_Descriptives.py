@@ -45,7 +45,7 @@ if __name__ == '__main__':
         data = 'multi_cleaned_hospital_bidirect_df.pkl',
         pkl = True
     )
-
+    
     case.to_csv('comorbid_MDD_desc.csv')
     control.to_csv('comorbid_No_MDD_desc.csv')
 
@@ -141,12 +141,11 @@ if __name__ == '__main__':
                    's0_med_n06ax':'Other_antidepressants'}
     )
 
-    # Overall classes
+    # Overall medication classes
     med_df = med_df.apply(lambda x: x.astype(int))
-
     med_df['Benzodiazepines'] = (med_df['Benzodiazepine_derivates']
                                  + med_df['Benzodiazepine_derivates_2'])
-
+    
     med_df['Selective_serotonin_reuptake_inhibitors'] = (
         med_df['Selective_serotonin_reuptake_inhibitors']
         + med_df['Selective_serotonin_agonists']
@@ -174,7 +173,7 @@ if __name__ == '__main__':
         + med_df['Benzodiazepine_related_drugs']
     )
     
-    # Now dropping individual vars
+    # Now dropping individual medication vars
     med_df = med_df.drop(['Benzodiazepine_derivates',
                           'Benzodiazepine_derivates_2',
                           'Selective_serotonin_agonists',
@@ -250,6 +249,5 @@ if __name__ == '__main__':
 
     p_val_round = list(np.round(p_val, decimals = 3))
     ordinal_counts_by_group['P'] = p_val_round
-
     ordinal_counts_by_group.to_csv('rehosp_medication_summary.csv')
 
