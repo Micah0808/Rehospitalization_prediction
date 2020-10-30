@@ -17,21 +17,20 @@ os.chdir('/Users/MicahJackson/anaconda/pycharm_wd/hospitilization_pred')
 def desc_stats(data = str, pkl=True):
 
     if pkl is True:
-
         desc_df = pd.read_pickle(data)
-
     else:
-
         desc_df = pd.read_csv(data)
 
     full_df = desc_df
-    desc_df = desc_df[['relapse', 's0_alter1', 's0_hamd_17total', 's0_cesdsum',
-                       's0_pi_n_epi_inpatient', 's0_sex']]
+    desc_df = desc_df[['relapse', 
+                       's0_alter1',
+                       's0_hamd_17total',
+                       's0_cesdsum',
+                       's0_pi_n_epi_inpatient',
+                       's0_sex']]
 
     desc_df = desc_df.apply(lambda x: x.astype(float))
-
     desc_df = desc_df.rename(columns = {'s0_alter1':'Age'})
-
     case = desc_df.loc[desc_df['relapse'] == 1]
     control = desc_df.loc[desc_df['relapse'] == 0]
 
@@ -50,16 +49,10 @@ if __name__ == '__main__':
     case.to_csv('comorbid_MDD_desc.csv')
     control.to_csv('comorbid_No_MDD_desc.csv')
 
-    # Women relapse
-    desc_df[(desc_df.s0_sex == 2) & (desc_df.relapse == 1.0)].shape
-
-    # Women no relapse
+    # Relapse Yes/no by gender
+    desc_df[(desc_df.s0_sex == 2) & (desc_df.relapse == 1.0)].shape  # Women
     desc_df[(desc_df.s0_sex == 2) & (desc_df.relapse == 0.0)].shape
-
-    # Men relapse
-    desc_df[(desc_df.s0_sex == 1) & (desc_df.relapse == 1.0)].shape
-
-    # Men no relapse
+    desc_df[(desc_df.s0_sex == 1) & (desc_df.relapse == 1.0)].shape  # Men
     desc_df[(desc_df.s0_sex == 1) & (desc_df.relapse == 0.0)].shape
 
 # =============================================================================
@@ -96,17 +89,19 @@ if __name__ == '__main__':
     # Running independent samples t-tests
     cont_vars = df_continuous.set_index('relapse')
 
-    t_test_results = ttest_ind(a = cont_vars.loc[True],
-                               b = cont_vars.loc[False],
-                               equal_var = True,
-                               nan_policy = 'omit')
+    t_test_results = ttest_ind(a=cont_vars.loc[True],
+                               b=cont_vars.loc[False],
+                               equal_var=True,
+                               nan_policy='omit')
 
     cont_p_vals = np.round([2.99986564e-01,
                             6.79767065e-04,
                             8.03177308e-05,
                             2.60316412e-03], decimals = 4)
 
+    # ============================================================
     # Medications
+    # ============================================================
     med_df = full_df[['s0_med_c07',
                       's0_med_n02cc',
                       's0_med_n05ab',
@@ -146,6 +141,7 @@ if __name__ == '__main__':
                    's0_med_n06ax':'Other_antidepressants'}
     )
 
+    # Overall classes
     med_df = med_df.apply(lambda x: x.astype(int))
 
     med_df['Benzodiazepines'] = (med_df['Benzodiazepine_derivates']
@@ -177,7 +173,8 @@ if __name__ == '__main__':
         med_df['Benzodiazepines']
         + med_df['Benzodiazepine_related_drugs']
     )
-
+    
+    # Now dropping individual vars
     med_df = med_df.drop(['Benzodiazepine_derivates',
                           'Benzodiazepine_derivates_2',
                           'Selective_serotonin_agonists',
@@ -232,9 +229,8 @@ if __name__ == '__main__':
     dof_list = []
 
     for o in independent_ordinal_vars:
-
         tab = pd.crosstab(med_df['relapse'], independent_ordinal_vars[o])
-        chi2, p, dof, expected = chi2_contingency(observed = tab,
+        chi2, p, dof, expected = chi2_contingency(observed = tab, 
                                                   correction = False)
         chi_square.append(chi2)
         p_val.append(p)
@@ -256,21 +252,4 @@ if __name__ == '__main__':
     ordinal_counts_by_group['P'] = p_val_round
 
     ordinal_counts_by_group.to_csv('rehosp_medication_summary.csv')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
