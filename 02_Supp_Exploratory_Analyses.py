@@ -14,7 +14,7 @@ __date__ = 'Jan 2019'
 
 import pandas as pd
 import numpy as np
-from scipy.stats import ttest_ind, chi2_contingency, levene
+from scipy.stats import ttest_ind, chi2_contingency, levene, kruskal, mannwhitneyu
 from statsmodels.stats.multitest import multipletests
 from statsmodels.tools.eval_measures import aic
 import statsmodels.api as sm
@@ -44,23 +44,14 @@ def logit_results_to_dataframe(results):
 
     pvals = results.pvalues
     coef = results.params
-
-    # params = results.params
-
     conf = results.conf_int()
     conf['OR'] = coef
     conf.columns = ['2.5%', '97.5%', 'OR']
     OR = np.exp(conf)
-
-    # conf_lower = results.conf_int()[0]
-    # conf_higher = results.conf_int()[1]
-
-    results_df = pd.DataFrame({'pvals':pvals,
-                               'coef':coef})
-
+    results_df = pd.DataFrame({'pvals':pvals, 'coef':coef})
     results_df = results_df.join(OR)
 
-    #Reordering...
+    # Re-ordering
     results_df = results_df[['coef',
                              'pvals',
                              'OR',
@@ -71,10 +62,10 @@ def logit_results_to_dataframe(results):
 
 if __name__ == '__main__':
 
-    # ===========================================
+    # =========================================================================
     # Testing for significance between ML models
-    # ===========================================
-
+    # =========================================================================
+    # Outer CV loop scores from the repeated nested cross-validation
     multi = [0.68, 0.78, 0.63, 0.73, 0.45, 0.82, 0.77, 0.82, 0.61, 0.46]
     clin = [0.64, 0.61, 0.6, 0.7, 0.42, 0.74, 0.77, 0.74, 0.56, 0.5]
     bio = [0.61, 0.63, 0.59, 0.75, 0.6, 0.59, 0.3, 0.6, 0.56, 0.49]
@@ -83,51 +74,35 @@ if __name__ == '__main__':
     cardio = [0.67, 0.68, 0.36, 0.74, 0.45, 0.57, 0.56, 0.63, 0.59, 0.36]
     pgrs = [0.42, 0.73, 0.44, 0.36, 0.51, 0.5, 0.34, 0.48, 0.74, 0.53]
 
-    # Testing for an omnibus effect
-    stats.kruskal(multi, clin, bio, serum, smri, cardio, pgrs)
+    # Testing for an omnibus effect between models in the outer cv loop
+    kruskal(multi, clin, bio, serum, smri, cardio, pgrs)
 
     # Testing for pairwise differences
-    print('Multi - Clin:',
-          np.round(stats.mannwhitneyu(multi, clin), decimals = 4))
+    model_names = ['Clin', 'Bio', 'Serum', 'sMRI', 'Cardio', 'PGRS']
+    model_score_lists = [clin, bio, serum, smri, cardio, pgrs]
+    for name, model in zip(model_names, model_score_lists):
+        print('Multi vs', name, np.round(mannwhitneyu(multi, model), 4))
+        
     # Multi - Clin: [36.    0.15]
-
-    print('Multi - Bio:',
-          np.round(stats.mannwhitneyu(multi, bio), decimals = 4))
     # Multi - Bio: [24.      0.0267]
-
-    print('Multi - Serum:',
-          np.round(stats.mannwhitneyu(multi, serum), decimals = 4))
     # Multi - Serum: [1.90e+01 0.0104]
-
-    print('Multi - sMRI:',
-          np.round(stats.mannwhitneyu(multi, smri), decimals = 4))
     # Multi - sMRI: [26.5     0.0409]
-
-    print('Multi - Cardio:',
-          np.round(stats.mannwhitneyu(multi, cardio), decimals = 4))
     # Multi - Cardio: [24.5     0.0292]
-
-    print('Multi - PGRS:',
-          np.round(stats.mannwhitneyu(multi, pgrs), decimals = 4))
     # Multi - PGRS: [1.95e+01 0.0116]
 
     # Correcting for multiple comparisons
-
     # Non-corrected p-values
     raw_p = [0.15, 0.0267, 0.0104, 0.0409, 0.0292, 0.0116]
-
     # Correcting with the Benjamin and Hochberg method
     multipletests(pvals = raw_p, alpha = 0.05, method = 'fdr_bh')
-
     # Corrected p-values
     cor_p = [0.15, 0.0438, 0.0348, 0.04908, 0.0438, 0.0348]
 
-    # ===================
+    # =========================================================================
     # Logistic regression
-    # ===================
+    # =========================================================================
     df = pd.read_pickle(path = 'multi_df_cleaned.pkl')
-
-    # Selecting variables for logit regression
+    # Selecting variables for logit regression from repeated nested cv analysis
     logit_df = df[['s0_cesd5',
                    's0_med_n05ah',
                    's0_psqi7',
@@ -164,7 +139,7 @@ if __name__ == '__main__':
                    's0_sm_f1':'Smoke'}
     )
 
-    # Creating a medication index to control for
+    # Creating a medication index to control for in the analysis
     medication_confounds = df[
         ['s0_med_c07',
          's0_med_n02cc',
@@ -184,9 +159,8 @@ if __name__ == '__main__':
          's0_med_n06ax',
          's0_med_n06ba']
     ]
-
+    
     medication_confounds = medication_confounds.apply(lambda x: x.astype(int))
-
     medication_confounds['med_index'] = (
             medication_confounds['s0_med_c07']
           + medication_confounds['s0_med_n02cc']
@@ -209,21 +183,20 @@ if __name__ == '__main__':
 
     # Predictors
     cols = logit_df.columns
-
     # Adding to the main df for analysis
     logit_df['med_index'] = medication_confounds['med_index']
     logit_df['relapse'] = logit_df['relapse'].astype(int)
 
+    # Preparing the data for the model
     X = logit_df.drop('relapse', axis = 1)
     y = logit_df['relapse']
-
     X = X.apply(lambda x: x.astype(float))
-    X = (X - X.mean()) / X.std()
-    X['relapse'] = y
-    logit_df = X
-    logit_df = logit_df.dropna(axis = 0)
+    X = (X - X.mean()) / X.std()  # Standardising due to multicollinearity
+    X['relapse'] = y  # Adding back in the dep var
+    logit_df = X  # Naming back to df now after standardising the ind vars
+    logit_df = logit_df.dropna(axis = 0)  # Drop missings
 
-    # Try using a doc string here for a multi line string
+    # Logistic regression model
     model = smf.logit(formula = 'relapse ~ C(CESD_5_trouble_concentrating)'
                                 '+ C(Benzodiazepines)'
                                 '+ C(PSQI_7_taken_sleeping_pills)'
@@ -243,25 +216,22 @@ if __name__ == '__main__':
                       data = logit_df)
 
     result = model.fit()
+    main_effect_aic = aic(llf = -152.36, nobs = 322, df_modelwc = 22)
     print(result.summary())
     print(np.exp(result.params))
     print(np.exp(result.conf_int()))
-
-    main_effect_aic = aic(llf = -152.36, nobs = 322, df_modelwc = 22)
+    print(main_effect_aic)
 
     # Getting a dataframe of results
     results_df = logit_results_to_dataframe(results = result)
-
-    # Adding in corrected p values
-    logit_p_vals = result.pvalues
+    logit_p_vals = result.pvalues  # Adding in corrected p values
     corrected_log_p_vals = multipletests(pvals = logit_p_vals,
                                          alpha = 0.05,
                                          method = 'fdr_bh')
-
     corrected_log_p_vals = list(corrected_log_p_vals[1])
     results_df['fdr_pvals'] = corrected_log_p_vals
 
-    # Re-ordering output
+    # Re-ordering the output and exporting
     results_df = results_df[['coef',
                              'pvals',
                              'fdr_pvals',
@@ -269,9 +239,7 @@ if __name__ == '__main__':
                              '2.5%',
                              '97.5%']]
 
-    # results_df = results_df.sort_values(by = 'pvals')
     results_df = results_df.apply(lambda x: x.round(decimals = 4))
-
     results_df.to_csv('multi_log_reg_results.csv')
 
     # =========================================================================
@@ -279,16 +247,13 @@ if __name__ == '__main__':
     # hold up in the full dataset?
     # =========================================================================
     full_cohort_df = pd.read_csv('full_cohort_with_imaging.csv')
-
     mdd_cohort = full_cohort_df.loc[full_cohort_df['s0_l_kohorte'] == 1]
     no_mdd_cohort = full_cohort_df.loc[full_cohort_df['s0_l_kohorte'] == 3]
-
     print(np.round(mdd_cohort['Rhippo'].mean(), decimals = 2))    # Vol 4033.07
     print(np.round(no_mdd_cohort['Rhippo'].mean(), decimals = 2)) # Vol 4066.39
 
     full_cohort_df['s0_l_kohorte'] = (full_cohort_df['s0_l_kohorte']
-                                      .replace({1:1,
-                                                3:0}))
+                                      .replace({1:1, 3:0}))
 
     full_cohort_df = full_cohort_df[['Rhippo',
                                      'ICV',
@@ -296,16 +261,15 @@ if __name__ == '__main__':
                                      's0_age',
                                      's0_l_kohorte']]
 
+    # Standardising the independent vars
     full_cohort_df = full_cohort_df.dropna(axis = 0)
-
     X = full_cohort_df.drop('Rhippo', axis = 1)
     y = full_cohort_df['Rhippo']
     X = (X - X.mean()) / X.std()
-
     full_cohort_df = X
     full_cohort_df['Rhippo'] = y
 
-    # In a regression model
+    # Model controlling for basic covariates
     ols_hipp_model = smf.ols(formula = 'Rhippo ~ '
                                        'C(s0_l_kohorte) '
                                        '+ s0_sex'
@@ -317,7 +281,6 @@ if __name__ == '__main__':
 
     # Running independent samples t-tests
     t_test_df = full_cohort_df.set_index('s0_l_kohorte')
-
     t_test_df = t_test_df[['Rhippo']]
     t_test_df = t_test_df.dropna(axis = 0)
 
@@ -338,12 +301,10 @@ if __name__ == '__main__':
     # UNIVARIATE MODELS
     # Can increases in hippocampal volume be explained by severity at baseline,
     # age, sex, medication use, previous admissions in univariate models?
-
     meds = list(df.loc[:, 's0_med_a02':'s0_med_v06'].columns)
     outcomes = ['relapse', 'Rhippo']
     final_preds = meds + outcomes
     uni_df = df[final_preds]
-
     uni_df = uni_df.apply(lambda x: x.astype(float))
     uni_df = (uni_df - uni_df.mean()) / uni_df.std()
     corr = uni_df.corr()
@@ -352,7 +313,6 @@ if __name__ == '__main__':
                   .sort_values(by = 'Rhippo',
                                ascending = False))
 
-    # =========================================================================
     # Interestingly, benzos are associated with an increase in hippo volumes
     hipp_model = df[['s0_hamd_17total',
                      's0_sex',
@@ -363,8 +323,8 @@ if __name__ == '__main__':
                      's0_bia_grundumsatz',
                      's0_height',
                      's0_ft3',
-                     's0_med_n05cf', # benzos
-                     's0_med_n05ch', # melatonin receptor agonists
+                     's0_med_n05cf', # Benzos
+                     's0_med_n05ch', # Melatonin receptor agonists
                      's0_med_d07', # Corticosteroids (dermatological)
                      's0_med_h02', # Corticosteroids for systemic use
                      'anxiety_pgrs_score',
@@ -376,15 +336,12 @@ if __name__ == '__main__':
                      's0_med_n06ax']]
 
     hipp_model = hipp_model.apply(lambda x: x.astype(float))
-
     hipp_model['anti_dep_load'] = (hipp_model['s0_med_n06ab']
                                    + hipp_model['s0_med_n06aa']
                                    + hipp_model['s0_med_c07']
                                    + hipp_model['s0_med_n06ax'])
 
-    # hipp_model['med_index'] = logit_df['med_index']
     hipp_model = hipp_model.dropna(axis = 0)
-
     hipp_model = hipp_model.rename(
         columns = {'Rhippo':'Right_hippo_vol',
                    's0_hamd_17total':'HAMD_17',
@@ -398,25 +355,17 @@ if __name__ == '__main__':
     )
 
     hipp_model['Sex'] = hipp_model['Sex'].astype(int)
-
     X = hipp_model.drop('Right_hippo_vol', axis = 1)
     y = hipp_model['Right_hippo_vol']
     X = (X - X.mean()) / X.std()
-
     hipp_model = X
     hipp_model['Right_hippo_vol'] = y
-
+    
+    # Benzo on Rhippo model by Sex
     ols_hipp_model = smf.ols(formula = 'Right_hippo_vol ~ '
                                        'C(Benzodiazepines) * C(Sex)'
                                        '+ Age',
                              data = hipp_model).fit()
-
-    # ols_hipp_model = smf.ols(formula = 'Right_hippo_vol ~ '
-    #                                    'anti_dep_load'
-    #                                    '+ C(Sex)'
-    #                                    '+ Age',
-    #                          data = hipp_model).fit()
-
     print(ols_hipp_model.summary())
 
     # Outputting as a latex file
@@ -431,12 +380,10 @@ if __name__ == '__main__':
     f.write(endtex)
     f.close()
 
-    # ============================================================
+    # =========================================================================
     # Visualising r hippo stratified by gender and medication use
-    # ============================================================
-    wom_benz = df.loc[(df['s0_sex'] == 2)
-                    & (df['s0_med_n05cf'] == 1)]
-
+    # =========================================================================
+    wom_benz = df.loc[(df['s0_sex'] == 2) & (df['s0_med_n05cf'] == 1)]
     wom_benz = wom_benz['Rhippo']
     wom_benz = wom_benz.dropna(axis = 0)
     # wom_benz:
@@ -454,9 +401,7 @@ if __name__ == '__main__':
     # max
     # 4791.400000
 
-    wom_no_benz = df.loc[(df['s0_sex'] == 2)
-                       & (df['s0_med_n05cf'] == 0)]
-
+    wom_no_benz = df.loc[(df['s0_sex'] == 2) & (df['s0_med_n05cf'] == 0)]
     wom_no_benz = wom_no_benz['Rhippo']
     wom_no_benz = wom_no_benz.dropna(axis = 0)
     # wom_no_benz:
@@ -474,9 +419,7 @@ if __name__ == '__main__':
     # max
     # 4673.500000
 
-    men_benz = df.loc[(df['s0_sex'] == 1)
-                    & (df['s0_med_n05cf'] == 1)]
-
+    men_benz = df.loc[(df['s0_sex'] == 1) & (df['s0_med_n05cf'] == 1)]
     men_benz = men_benz['Rhippo']
     men_benz = men_benz.dropna(axis = 0)
     # men_benz
@@ -497,7 +440,6 @@ if __name__ == '__main__':
     men_no_benz = df.loc[(df['s0_sex'] == 1)
                        & (df['s0_med_n05cf'] == 0)
                        & (df['Rhippo'] >= 3000.0)]
-
     men_no_benz = men_no_benz['Rhippo']
     men_no_benz = men_no_benz.dropna(axis = 0)
     # men_no_benz
@@ -514,90 +456,87 @@ if __name__ == '__main__':
     # 75 % 4610.525000
     # max
     # 5518.900000
+    
+    # Plotting out the distributions
+    # Women
+    sns.distplot(a=wom_benz,
+                 bins=25,
+                 hist=True,
+                 kde=True,
+                 rug=False,
+                 fit=None,
+                 hist_kws=None,
+                 kde_kws=None,
+                 rug_kws=None,
+                 fit_kws=None,
+                 vertical=False,
+                 norm_hist=False,
+                 axlabel=None,
+                 label='Female: Benzo = True',
+                 ax=None)
 
-    sns.distplot(a = wom_benz,
-                 bins = 25,
-                 hist = True,
-                 kde = True,
-                 rug = False,
-                 fit = None,
-                 hist_kws = None,
-                 kde_kws = None,
-                 rug_kws = None,
-                 fit_kws = None,
-                 vertical = False,
-                 norm_hist = False,
-                 axlabel = None,
-                 label = 'Female: Benzo = True',
-                 ax = None)
+    sns.distplot(a=wom_no_benz,
+                 bins=25,
+                 hist=True,
+                 kde=True,
+                 rug=False,
+                 fit=None,
+                 hist_kws=None,
+                 kde_kws=None,
+                 rug_kws=None,
+                 fit_kws=None,
+                 vertical=False,
+                 norm_hist=False,
+                 axlabel=None,
+                 label='Female: Benzo = False',
+                 ax=None)
 
-    sns.distplot(a = wom_no_benz,
-                 bins = 25,
-                 hist = True,
-                 kde = True,
-                 rug = False,
-                 fit = None,
-                 hist_kws = None,
-                 kde_kws = None,
-                 rug_kws = None,
-                 fit_kws = None,
-                 vertical = False,
-                 norm_hist = False,
-                 axlabel = None,
-                 label = 'Female: Benzo = False',
-                 ax = None)
-
-    # Title / labels
+    # Title, label, legend
     plt.title("""Female right hippocampal volume stratified by 
                  benzodiazepine use""",
               fontdict = {'fontsize': 22})
-
     plt.xlabel('Right hippocampal volume', fontdict = {'fontsize':16})
-
-    # Setting legend
     plt.legend(loc = 'upper right')
     plt.show()
 
-    sns.distplot(a = men_benz,
-                 bins = 25,
-                 hist = True,
-                 kde = True,
-                 rug = False,
-                 fit = None,
-                 hist_kws = None,
-                 kde_kws = None,
-                 rug_kws = None,
-                 fit_kws = None,
-                 vertical = False,
-                 norm_hist = False,
-                 axlabel = None,
-                 label = 'Male: Benzo = True',
-                 ax = None)
+    # Men
+    sns.distplot(a=men_benz,
+                 bins=25,
+                 hist=True,
+                 kde=True,
+                 rug=False,
+                 fit=None,
+                 hist_kws=None,
+                 kde_kws=None,
+                 rug_kws=None,
+                 fit_kws=None,
+                 vertical=False,
+                 norm_hist=False,
+                 axlabel=None,
+                 label='Male: Benzo = True',
+                 ax=None)
 
-    sns.distplot(a = men_no_benz,
-                 bins = 25,
-                 hist = True,
-                 kde = True,
-                 rug = False,
-                 fit = None,
-                 hist_kws = None,
-                 kde_kws = None,
-                 rug_kws = None,
-                 fit_kws = None,
-                 vertical = False,
-                 norm_hist = False,
-                 axlabel = None,
-                 label = 'Male: Benzo = False',
-                 ax = None)
+    sns.distplot(a=men_no_benz,
+                 bins=25,
+                 hist=True,
+                 kde=True,
+                 rug=False,
+                 fit=None,
+                 hist_kws=None,
+                 kde_kws=None,
+                 rug_kws=None,
+                 fit_kws=None,
+                 vertical=False,
+                 norm_hist=False,
+                 axlabel=None,
+                 label='Male: Benzo = False',
+                 ax=None)
 
-    # Title / labels
+    # Title, labels, legends
     plt.title("""Male right hippocampal volume stratified by 
                  benzodiazepine use""",
               fontdict = {'fontsize': 22})
-
     plt.xlabel('Right hippocampal volume', fontdict = {'fontsize':16})
-
-    # Setting legend
     plt.legend(loc = 'upper right')
     plt.show()
 
@@ -605,29 +544,22 @@ if __name__ == '__main__':
     # Let's look at relapse proportions.
 
     # 44.7% of women on benzos are re-hospitalized
-    female_benzo = df.loc[(df['s0_sex'] == 2)
-                            & (df['s0_med_n05cf'] == True)]
-
-
+    female_benzo = df.loc[(df['s0_sex'] == 2) & (df['s0_med_n05cf'] == True)]
     # 22% of women NOT on benzos are hospitalized
-    female_no_benzo = df.loc[(df['s0_sex'] == 2)
-                                 & (df['s0_med_n05cf'] == False)]
+    female_no_benzo = df.loc[(df['s0_sex'] == 2) & (df['s0_med_n05cf'] == False)]
 
     # Now in a logit model - not significant
     hipp_model['relapse'] = hipp_model['relapse'].astype(int)
     benz_relapse = smf.logit(formula = 'relapse ~ C(Benzodiazepines) * C(Sex)',
                              data = hipp_model).fit()
-
     benz_result = benz_relapse.summary()
     print(benz_result)
-
-    # =========================================================================
 
     # First, what are the overall gender differences?
     men_hippo = df.loc[(df['s0_sex']) == 1]
     print(np.round(men_hippo['Rhippo'].mean(), decimals = 2))
     print(np.round(men_hippo['Rhippo'].std(), decimals = 2))
-
+    
     wom_hippo = df.loc[(df['s0_sex']) == 2]
     print(np.round(wom_hippo['Rhippo'].mean(), decimals = 2))
     print(np.round(wom_hippo['Rhippo'].std(), decimals = 2))
@@ -657,19 +589,16 @@ if __name__ == '__main__':
     # 3847.37
 
     # Regardless of gender, all who relapse have higher r-hippo
-
     # It's also obvious that the r-hippo of men is much larger than that of
     # women. Thus, increases in R-hippo may be a proxy for men relapsing,
     # as well as the gender * benzo relationship
 
     # What are the proportions of mean and women in the whole dataset?
     df['s0_sex'].value_counts()
-
     # 151 men, 39.7%
     # 229 women, 60.3%
 
     # How many of each sex are re-hospitalized?
-
     # 43 men out of 102 who relapse. That is 42.2% of those who relapse are men.
     men_relapse = df.loc[(df['s0_sex'] == 1) & (df['relapse'] == True)]
 
@@ -682,22 +611,15 @@ if __name__ == '__main__':
     # These women have a mean r-hippo of 3955
     np.round(wom_relapse['Rhippo'].mean())
 
-    # =========================================================================
     # Some anti-psychotic meds have been shown to be positively associated
     # with increases in hippocampal volume. Let's explore if there is a
     # relationship there.
-
-    # df['anti_psychotic_index'] = np.where((df['s0_med_n05ab'] == 1)
-    #                                  | (df['s0_med_n05ad'] == 1)
-    #                                  | (df['s0_med_n05af'] == 1)
-    #                                  | (df['s0_med_n05ah'] == 1)
-    #                                  | (df['s0_med_n05al'] == 1), 1, 0)
-
-    # # What about anti-psychotics. These can increase r-hippo volumes.
-    # df['anti_psychotic_index'] = np.where((df['s0_med_n05al'] == 1)
-    #                                  | (df['s0_med_n05an'] == 1)
-    #                                  | (df['s0_med_n05ax'] == 1), 1, 0)
-
+    df['anti_psychotic_index'] = np.where((df['s0_med_n05ab'] == 1)
+                                           | (df['s0_med_n05ad'] == 1)
+                                           | (df['s0_med_n05af'] == 1)
+                                           | (df['s0_med_n05ah'] == 1)
+                                           | (df['s0_med_n05al'] == 1), 1, 0)
+    
     anti_psych_yes = df.loc[df['anti_psychotic_index'] == 1]
     print(np.round(anti_psych_yes['Rhippo'].mean(), decimals = 2))
     print(np.round(anti_psych_yes['Rhippo'].std(), decimals = 2))
@@ -715,13 +637,6 @@ if __name__ == '__main__':
 
     print(ols_anti_model.summary())
 
-    # t_test_df = df.set_index('anti_psychotic_index')
-    #
-    # t_test_results = ttest_ind(a = t_test_df['Rhippo'].loc[1],
-    #                            b = t_test_df['Rhippo'].loc[0],
-    #                            equal_var = False,
-    #                            nan_policy = 'omit')
-
     # =========================================================================
     # What if we remove those on antipsychotics and benzodiazepines? Does this
     # change hippocampal volumes?
@@ -732,12 +647,9 @@ if __name__ == '__main__':
                                      | (df['s0_med_n05ah'] == 1)
                                      | (df['s0_med_n05al'] == 1), 1, 0)
 
-    # MEN
-    men_cases = df.loc[(df['relapse'] == True)
-                     & (df['s0_sex'] == 1.0)]
-
-    men_control = df.loc[(df['relapse'] == False)
-                       & (df['s0_sex'] == 1.0)]
+    # Men
+    men_cases = df.loc[(df['relapse'] == True) & (df['s0_sex'] == 1.0)]
+    men_control = df.loc[(df['relapse'] == False) & (df['s0_sex'] == 1.0)]
 
     # Small difference when just looking at the full sample of men.
     print(np.round(men_cases['Rhippo'].describe(), decimals = 2))
@@ -792,7 +704,7 @@ if __name__ == '__main__':
     # 75%      4562.98
     # max      5274.60
 
-    # WOMEN
+    # Women
     # Now let's look at women
     wom_sample = df
     wom_cases = wom_sample.loc[(wom_sample['relapse'] == True)
@@ -822,15 +734,15 @@ if __name__ == '__main__':
     # 75%      4092.60
     # max      4673.50
 
-    wom_clean_sample = wom_sample.loc[(df['s0_med_n05cf'] == 0)
-                                    & (df['anti_psychotic_index'] == 0)]
+    wom_clean_sample = wom_sample.loc[(df['s0_med_n05cf'] == 0) 
+                                      & (df['anti_psychotic_index'] == 0)]
 
-    wom_clean_cases = wom_clean_sample.loc[(wom_clean_sample['relapse'] == True)
-                                         & (wom_clean_sample['s0_sex'] == 2.0)]
+    wom_clean_cases = wom_clean_sample.loc[(wom_clean_sample['relapse'] == True) 
+                                           & (wom_clean_sample['s0_sex'] == 2.0)]
 
     wom_clean_control = (
-        wom_clean_sample.loc[(wom_clean_sample['relapse'] == False)
-                           & (wom_clean_sample['s0_sex'] == 2.0)]
+        wom_clean_sample.loc[(wom_clean_sample['relapse'] == False) 
+                             & (wom_clean_sample['s0_sex'] == 2.0)]
     )
 
     # The opposite effect compared to what happened with men, when we remove
@@ -869,10 +781,8 @@ if __name__ == '__main__':
 
     # These participants have a diagnosis and are currently taking thyroid meds
     thy_df = pd.read_csv('multi_with_thy.csv')
-
     thy_yes_meds_df = thy_df.loc[(thy_df['s0_dx_thyp'] == True)
                                & (thy_df['s0_med_h03'] == True)]
-
     thy_yes_meds_df = thy_yes_meds_df[['s0_dx_thyp', 's0_med_h03']]
     print(thy_yes_meds_df)
 
@@ -885,16 +795,14 @@ if __name__ == '__main__':
                              's0_ft4']]
 
     thy_no_meds_df = (
-        thy_no_meds_df.loc[(thy_no_meds_df['s0_dx_thyp'] == True)
-                         & (thy_no_meds_df['s0_med_h03'] == False)]
+        thy_no_meds_df.loc[(thy_no_meds_df['s0_dx_thyp'] == True) 
+                           & (thy_no_meds_df['s0_med_h03'] == False)]
     )
-
     print(thy_no_meds_df)
 
     # What ranges are their thyroid levels in? Have they recovered? Thus, no
-    # meds....
+    # meds?
     print(np.round(thy_no_meds_df.describe(), decimals = 2))
-
     # Healthy reference ranges
     # tsh = 0.4 to 4.0 mU/l
     # t3  = 3.5 to 7.8 pmol/l
@@ -903,7 +811,6 @@ if __name__ == '__main__':
     # Pretty much all are in the healthy range, thus, it appears they have
     # recovered and do not need to be on thyroid medications. Four have t3
     # levels below 3.5, however, the lowest is only 3.08.
-
     print(thy_no_meds_df.loc[thy_no_meds_df['s0_tsh'] >= 0.04])
 
     # Are there any patients without a diagnosis taking them as a
@@ -914,25 +821,22 @@ if __name__ == '__main__':
                           's0_ft3',
                           's0_ft4']]
 
-    thy_poly_df = thy_poly_df.loc[(thy_poly_df['s0_dx_thyp'] == False)
-                           & (thy_poly_df['s0_med_h03'] == True)]
-
+    thy_poly_df = thy_poly_df.loc[(thy_poly_df['s0_dx_thyp'] == False) 
+                                  & (thy_poly_df['s0_med_h03'] == True)]
     print(np.round(thy_poly_df.describe(), decimals = 2))
-
     # There are 5 participants taking thyroid medications who do not have a
     # diagnosis of hyper or hypo-thyroidism.
 
     # ========================================================================
     # CHOLESTEROL
     # ========================================================================
-    # MEDICATION USE
-    meds = list(df.loc[:, 's0_med_a02':'s0_med_v06'].columns)
-    outcomes = ['relapse', 's0_cholesterol']
+    # Memication use
+    meds = list(df.loc[:, 's0_med_a02':'s0_med_v06'].columns)  # Med list
+    outcomes = ['relapse', 's0_cholesterol']  # Outcomes for uni corrs
     final_preds = meds + outcomes
     uni_df = df[final_preds]
-
     uni_df = uni_df.apply(lambda x: x.astype(float))
-    uni_df = (uni_df - uni_df.mean()) / uni_df.std()
+    uni_df = (uni_df - uni_df.mean()) / uni_df.std()  # Standardising
     corr = uni_df.corr()
     cholesterol_corr = (pd.DataFrame(corr['s0_cholesterol']
                           .drop('s0_cholesterol'))
@@ -971,7 +875,6 @@ if __name__ == '__main__':
     y = chol_df['s0_cholesterol']
     X = X.apply(lambda x:x.astype(float))
     X = (X - X.mean()) / X.std()
-
     chol_model = X
     chol_model['s0_cholesterol'] = y
 
@@ -986,197 +889,12 @@ if __name__ == '__main__':
 
     # Sex hormones and modulators of the genital system - Sig pos relationship,
     # no gender interactions
-
     # Corticosteroids for systemic use - Sig pos relationship, no gender
-
     # Other antidepressants - Nothing
-
     # Cardiac therapy - Nothing
-
     # Nasal preparations - Nothing
-
     # MAO - Nothing
-
     # Ophthalmologicals - Sig negative relationship
-
     # Lipid modifying agents - Highly sig neg relationship after
     # controlling for age and gender
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # # =============
-    # # Welsh t-tests
-    # # =============
-    # df = pd.read_pickle(path = 'multi_cleaned_hospital_bidirect_df.pkl')
-    #
-    # # Subsetting predictors selected by the elastic net in the
-    # # multi-modal model
-    # df_continous = df[['s0_pi_n_epi_inpatient',
-    #                    's0_psqi_sum',
-    #                    'Rhippo',
-    #                    's0_cholesterol',
-    #                    'relapse']]
-    #
-    # # Setting up a table to compare group differences in the selected
-    # # predictors
-    # mean_group_difference = (
-    #     df_continous
-    #         .groupby('relapse')
-    #         .mean()
-    #         .transpose()
-    #         .apply(lambda x: x.round(decimals = 2))
-    #         .reset_index()
-    #         .rename(columns = {'index':'Predictors'})
-    #         .replace({'s0_pi_n_epi_inpatient':'N previous admissions',
-    #                   's0_psqi_sum':'PSQI sleep quality index (global score)',
-    #                   'Rhippo':'Right mean hippocampal volume',
-    #                   's0_cholesterol':'Cholesterol (mmol/l)'}))
-    #
-    # # Running independent samples t-tests
-    # cont_vars = df_continous.set_index('relapse')
-    #
-    # t_test_results = ttest_ind(a = cont_vars.loc[True],
-    #                            b = cont_vars.loc[False],
-    #                            equal_var = False,
-    #                            nan_policy = 'omit')
-    #
-    # # Subsetting results
-    # t_stats = list(t_test_results[0])
-    # p_vals = list(t_test_results[1])
-    #
-    # # Correcting p values with the Benjamin and Hochberg method
-    # t_corrected_p_vals = multipletests(pvals = p_vals,
-    #                                    alpha = 0.05,
-    #                                    method = 'fdr_bh')
-    #
-    # # Adding to the table with mean group differences
-    # mean_group_difference['t'] = t_stats
-    # mean_group_difference['p'] = list(t_corrected_p_vals[1]) # Corrected p-vals
-    #
-    # # Re-arranging column order
-    # mean_group_difference = mean_group_difference[
-    #     ['Predictors', True, False, 't', 'p']
-    # ]
-    #
-    # # Exporting
-    # mean_group_difference.to_csv('t_test_results_table.csv')
-    #
-    # # ======================
-    # # Chi2 Contingency test
-    # # ======================
-    #
-    # # Subsetting predictors selected by the elastic net in the
-    # # multi-modal model
-    # df_ordinal = (df[['s0_cesd5',
-    #                   's0_med_n05ah',
-    #                   's0_psqi7',
-    #                   's0_cesd3',
-    #                   's0_med_h03',
-    #                   's0_al_f1',
-    #                   'relapse']]
-    #               .dropna(axis = 0)
-    #               .apply(lambda x: x.astype(int)))
-    #
-    # # 's0_med_r05',
-    # # 's0_med_n05ax',
-    # # 's0_pm_man_cur_int' (0,3)
-    #
-    # # Setting up a table to compare group differences in the selected
-    # # predictors
-    # ordinal_counts_by_group = (
-    #     df_ordinal
-    #         .dropna(axis = 0)
-    #         .apply(lambda x: x.astype(int))
-    #         .groupby('relapse')
-    #         .sum()
-    #         .transpose()
-    #         .reset_index()
-    #         .rename(columns = {'index':'Predictor',
-    #                            0:'False',
-    #                            1:'True'})
-    #         .replace({'s0_cesd5':'CES-D 5 (trouble concentrating)',
-    #                   's0_med_n05ah':
-    #                   'Diazepines, oxazepines, thiazepines and oxepines',
-    #                   's0_psqi7':'PSQI 7 (taken sleeping pills)',
-    #                   's0_cesd3':'CES-D 3 (not get rid of mood)',
-    #                   's0_med_h03':'Thyroid medication',
-    #                   's0_al_f1':'Drink alcohol more than once a week?',
-    #                   's0_pm_man_cur_int':'Current manic episode'}))
-    #
-    # # Running Chi2 tests on ordinal data with Yate's continuity correction
-    #
-    # independent_ordinal_vars = df_ordinal[
-    #     ['s0_cesd5',
-    #      's0_med_n05ah',
-    #      's0_psqi7',
-    #      's0_cesd3',
-    #      's0_med_h03',
-    #      's0_al_f1']
-    # ]
-    #
-    # chi_square = []
-    # p_val = []
-    # dof_list = []
-    #
-    # for o in independent_ordinal_vars:
-    #
-    #     tab = pd.crosstab(df_ordinal['relapse'], independent_ordinal_vars[o])
-    #     chi2, p, dof, expected = chi2_contingency(observed = tab,
-    #                                               correction = True)
-    #     chi_square.append(chi2)
-    #     p_val.append(p)
-    #     dof_list.append(dof)
-    #
-    # # Correcting p values
-    # c_corrected_p = multipletests(pvals = p_val,
-    #                               alpha = 0.05,
-    #                               method = 'fdr_bh')
-    #
-    # # Creating a dictionary of results
-    # chi_square_results = {'X2':chi_square,
-    #                       'p':list(c_corrected_p[1]), # Corrected p-values
-    #                       'DF':dof_list}
-    #
-    # # Converting to a Pandas dataframe
-    # chi_square_df = (pd
-    #                  .DataFrame(chi_square_results)
-    #                  .apply(lambda x: x.round(decimals = 5))
-    #                  .dropna(axis = 0)
-    #                  .join(other = ordinal_counts_by_group,
-    #                        how = 'left'))
-    #
-    # # Re-arranging predictors
-    # chi_results_table = chi_square_df[
-    #     ['Predictor', 'True', 'False', 'X2', 'p', 'DF']
-    # ]
-    #
-    # # Exporting
-    # chi_results_table.to_csv('chi_results_table.csv')
-
-
-
-
-
-
-
-
-
-
-
-
 
