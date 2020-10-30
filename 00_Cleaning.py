@@ -41,8 +41,7 @@ def pgrs_import():
                                  .str[8:]
                                  .astype(dtype = int))
 
-    # if threshold is '0.5':
-    #     # Files to read in from wd
+    # Files to read in from wd
     pgrs_files = [
         'IGAP_Alzheimer_0.5.csv',
         'MDD23andme_0.5.csv',
@@ -53,30 +52,6 @@ def pgrs_import():
         'PGC_MDD_NEW_2017_DATA_0.5.csv',
         'PGC_SCZ2_2014_0.5.csv'
     ]
-    # elif threshold is '0.05':
-    # pgrs_files = [
-    #     'IGAP_Alzheimer_0.05.csv',
-    #     'MDD23andme_0.05.csv',
-    #     'PGC_anorexia_snp_all_13May2016_0.05.csv',
-    #     'PGC_ASD_AUD_5Mar2015_0.05.csv',
-    #     'pgc_bip_full_2012_0.05.csv',
-    #     'pgc_mdd_full_2012_0.05.csv',
-    #     'PGC_MDD_NEW_2017_DATA_0.05.csv',
-    #     'PGC_SCZ2_2014_0.05.csv'
-    # ]
-    # elif threshold is '0.01':
-    # pgrs_files = [
-    #     'IGAP_Alzheimer_0.01.csv',
-    #     'MDD23andme_0.01.csv',
-    #     'PGC_anorexia_snp_all_13May2016_0.01.csv',
-    #     'PGC_ASD_AUD_5Mar2015_0.01.csv',
-    #     'pgc_bip_full_2012_0.01.csv',
-    #     'pgc_mdd_full_2012_0.01.csv',
-    #     'PGC_MDD_NEW_2017_DATA_0.01.csv',
-    #     'PGC_SCZ2_2014_0.01.csv'
-    # ]
-    # else:
-    #     raise ValueError('Must specify p-value threshold 0.5, 0.05, or 0.01')
 
     # Names for each pgrs score in the pandas dataframe
     pgrs_names = [
@@ -94,9 +69,9 @@ def pgrs_import():
     for f, n in zip(pgrs_files, pgrs_names):
         pgrs = pd.read_csv(f)
         pgrs = pgrs[['IID', 'SCORE']]
-        pgrs = pgrs.rename(columns = {'SCORE': n, 'IID': 'idbidirect'})
+        pgrs = pgrs.rename(columns={'SCORE': n, 'IID': 'idbidirect'})
         pgrs['idbidirect'] = (pgrs['idbidirect'].str[8:].astype(dtype = int))
-        anx_pgrs_df = anx_pgrs_df.merge(right = pgrs, on = 'idbidirect')
+        anx_pgrs_df = anx_pgrs_df.merge(right=pgrs, on='idbidirect')
         anx_pgrs_df = anx_pgrs_df.iloc[:1004]
 
     # Adding 10,000 to each ID to match with the clinical file
@@ -120,12 +95,14 @@ def outlier_detector(data):
     Q1 = data.quantile(0.25)
     Q3 = data.quantile(0.75)
     IQR = Q3 - Q1
+    
     # Getting outlier columns
-    outlier_cols = (pd.DataFrame(((data < (Q1 - 1.5 * IQR)) |
-                                  (data > (Q3 + 1.5 * IQR)))
+    outlier_cols = (pd.DataFrame(((data < (Q1 - 1.5 * IQR)) 
+                                  | (data > (Q3 + 1.5 * IQR)))
                     .sum())
                     .rename(columns = {0: 'n_outliers'}))
-    # Getting outlier names
+    
+    # Getting outlier names to later inspect
     outliers = list(outlier_cols[outlier_cols.n_outliers >= 1].index)
 
     return outliers
@@ -161,9 +138,9 @@ def to_category(data):
 
     """
 
-    :param data:
+    :param data: Pandas dataframe 
 
-    :return:
+    :return: Pandas dataframe with parsed dtypes
 
     """
   
@@ -186,9 +163,9 @@ def to_float(data):
 
     """
 
-    :param data:
+    :param data: Pandas dataframe
 
-    :return:
+    :return: Pandas dataframe with parsed dtypes
 
     """
   
@@ -222,72 +199,18 @@ def na_percent(raw_df):
     return na_percent
 
 
-# def pgrs_import():
-#
-#     """
-#
-#     Import function to parse individual PGRS csv files into one pandas
-#     dataframe merged on idbidirect.
-#
-#     :return: Merged pandas dataframe
-#
-#     """
-#
-#     # ID matching df
-#     id_match_df = pd.read_excel('BiDirect_ID_BMI_pheno.xlsx')
-#     id_match_df = id_match_df[['idbidirect', 'idgenlab']]
-#     id_match_df = id_match_df.rename(columns = {'idgenlab': 'IID'})
-#     # Creating a base df to inspect, debug and merge with
-#     anx_pgrs_df = pd.read_csv('Anxiety_case_control_2016_0.5.csv')
-#     anx_pgrs_df = anx_pgrs_df[['IID', 'SCORE']]
-#     anx_pgrs_df = anx_pgrs_df.rename(columns = {'SCORE': 'anxiety_pgrs_score'})
-#     # Merging
-#     id_match_df = pd.merge(right = id_match_df,
-#                            left = anx_pgrs_df,
-#                            on = 'IID')
-#     id_match_df = id_match_df[['IID', 'idbidirect', 'anxiety_pgrs_score']]
-#
-#     # Files to read in from wd
-#     pgrs_files = [
-#         'IGAP_Alzheimer_0.5.csv',
-#         'MDD23andme_0.5.csv',
-#         'PGC_anorexia_snp_all_13May2016_0.5.csv',
-#         'PGC_ASD_AUD_5Mar2015_0.5.csv',
-#         'pgc_bip_full_2012_0.5.csv',
-#         'pgc_mdd_full_2012_0.5.csv',
-#         'PGC_MDD_NEW_2017_DATA_0.5.csv',
-#         'PGC_SCZ2_2014_0.5.csv'
-#     ]
-#     # Names for each pgrs score in the pandas dataframe
-#     pgrs_names = [
-#         'alzheimer_pgrs',
-#         'mdd_23me_pgrs',
-#         'anorexia_pgrs',
-#         'asd_pgrs',
-#         'pgc_bip_pgrs',
-#         'pgc_mdd_pgrs',
-#         'pgc_mdd_new_pgrs',
-#         'pgc_scz_pgrs'
-#     ]
-#     # Merging
-#     for f, n in zip(pgrs_files, pgrs_names):
-#         pgrs = pd.read_csv(f)
-#         pgrs = pgrs[['IID', 'SCORE']]
-#         pgrs = pgrs.rename(columns = {'SCORE': n})
-#         id_match_df = id_match_df.merge(right = pgrs, on = 'IID')
-#
-#     return id_match_df
-
-
 def build_english_codebook(df, raw_codebook):
     """
 
+    Function to do a preliminary translation of the BiDirect codebook to
+    English from German
+    
     :return:
     """
 
     # Cleaning up the final df names
     predictors = df.columns.tolist()
-    pred_df = pd.DataFrame(data = predictors, columns = ['Predictors'])[0:424]
+    pred_df = pd.DataFrame(data=predictors, columns=['Predictors'])[0:424]
     pred_df['Predictors'] = pred_df['Predictors'].str.replace(pat = 's0_',
                                                               repl = '')
 
@@ -297,6 +220,7 @@ def build_english_codebook(df, raw_codebook):
         columns = {'Variablenname': 'Predictors',
                    'Variablenlabel': 'Predictor_labels'}
     )
+    
     # Merging the dataframes
     merged_df = pd.merge(left = pred_df,
                          right = codebook,
@@ -315,13 +239,12 @@ def build_english_codebook(df, raw_codebook):
     translator = Translator()
     merged_df['English_labels'] = (
         merged_df['Predictor_labels']
-        .apply(translator
-               .translate, src = 'de', dest = 'en')
+        .apply(translator.translate, src='de', dest='en')
         .apply(getattr, args = ('text',))
     )
 
     english_codebook = merged_df
-    # english_codebook.to_csv('bidirect_translated_vars.csv')
+    english_codebook.to_csv('bidirect_translated_vars.csv')
 
     return english_codebook
 
@@ -355,22 +278,18 @@ if __name__ == '__main__':
     # Saving the outcome to merge back in later once the rest of the follow
     # up variables are lost
     outcome = raw_df[['idbidirect', 'relapse']]
-
     # Selecting baseline predictors
     raw_df = raw_df.loc[:, 'idbidirect':'s0_psychchip']
-
     # Adding back in relapse status
     raw_df = raw_df.merge(right = outcome, on = 'idbidirect')
-
     # Merging with PGRS scores
     pgrs_df = pgrs_import()
     raw_df = raw_df.merge(right = pgrs_df, on = 'idbidirect')
-
+    
     # Structural imaging
     surf_df = pd.read_csv('CorticalMeasuresENIGMA_SurfAvg.csv')
     thick_df = pd.read_csv('CorticalMeasuresENIGMA_ThickAvg.csv')
     vol_df = pd.read_csv('LandRvolumes.csv')
-
     # Preparing imaging data
     # Removing str elements that don't match with the clinical data in IDs
     surf_df['SubjID'] = surf_df['SubjID'].str[13:]
@@ -378,17 +297,16 @@ if __name__ == '__main__':
     vol_df['SubjID'] = vol_df['SubjID'].str[13:]
 
     # Merging the dataframes together
-    imaging_df = surf_df.merge(right = thick_df, on ='SubjID')
+    imaging_df = surf_df.merge(right=thick_df, on='SubjID')
     imaging_df = (imaging_df
-                  .merge(right = vol_df,
-                         on = 'SubjID')
-                  .rename(columns = {'SubjID': 'idbidirect'}))
+                  .merge(right=vol_df, on='SubjID')
+                  .rename(columns={'SubjID': 'idbidirect'}))
 
     # Converting to int so I can merge with the clinical data file
-    imaging_df['idbidirect'] = imaging_df.idbidirect.astype(dtype = int)
+    imaging_df['idbidirect'] = imaging_df.idbidirect.astype(dtype=int)
 
     # Adding in the imaging data to the raw_df
-    raw_df = raw_df.merge(right = imaging_df, on = 'idbidirect')
+    raw_df = raw_df.merge(right=imaging_df, on='idbidirect')
 
     # List of IDs to drop with problematic imaging data
     ids = [10202, 10272, 10374, 10389, 10599, 10735, 10806,
@@ -396,15 +314,12 @@ if __name__ == '__main__':
     for x in ids:
         raw_df = raw_df[raw_df.idbidirect != x]
 
-    # raw_df = [raw_df[raw_df.idbidirect != x] for x in ids]
-    # raw_df.to_csv('full_cohort_with_imaging.csv')
-
     # Subsetting out variables for prediction of re-hospitalization
     imaging_vars = [
          'idbidirect',
-         'Lhippo',  # mean hippocampal volume
+         'Lhippo',  # Mean hippocampal volume
          'Rhippo',
-         'L_medialorbitofrontal_thickavg',  # medial orbitofrontal
+         'L_medialorbitofrontal_thickavg',  # Medial orbitofrontal
          'R_medialorbitofrontal_thickavg',
          'L_fusiform_thickavg',  # Fusifrom gyrus
          'R_fusiform_thickavg',
@@ -417,7 +332,8 @@ if __name__ == '__main__':
          'L_middletemporal_thickavg',  # Left middle temporal gyrus
          'R_inferiortemporal_thickavg', # Right inferior temporal gyrus
          'R_caudalanteriorcingulate_thickavg',  # Right caudal ACC
-         'ICV']  # Total intracranial volume
+         'ICV'  # Total intracranial volume
+    ]  
 
     demo_and_general_health_vars = [
         's0_ges_fk',
@@ -518,7 +434,7 @@ if __name__ == '__main__':
 
     outcome = ['relapse']
 
-    # Merging lists
+    # Merging variable name lists
     final_vars = (imaging_vars
                   + serum_vars
                   + pgrs_vars
