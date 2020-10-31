@@ -31,7 +31,7 @@ os.chdir('/Users/MicahJackson/anaconda/pycharm_wd/hospitilization_pred')
 def logit_results_to_dataframe(results):
 
     """
-    Take the result of an statsmodel results table and transforms it
+    Takes the result of a statsmodel results table and transforms it
     into a dataframe
 
     :param results: Statsmodels summary object
@@ -48,7 +48,7 @@ def logit_results_to_dataframe(results):
     conf['OR'] = coef
     conf.columns = ['2.5%', '97.5%', 'OR']
     OR = np.exp(conf)
-    results_df = pd.DataFrame({'pvals':pvals, 'coef':coef})
+    results_df = pd.DataFrame({'pvals': pvals, 'coef': coef})
     results_df = results_df.join(OR)
 
     # Re-ordering
@@ -94,14 +94,14 @@ if __name__ == '__main__':
     # Non-corrected p-values
     raw_p = [0.15, 0.0267, 0.0104, 0.0409, 0.0292, 0.0116]
     # Correcting with the Benjamin and Hochberg method
-    multipletests(pvals = raw_p, alpha = 0.05, method = 'fdr_bh')
+    multipletests(pvals=raw_p, alpha=0.05, method='fdr_bh')
     # Corrected p-values
     cor_p = [0.15, 0.0438, 0.0348, 0.04908, 0.0438, 0.0348]
 
     # =========================================================================
     # Logistic regression
     # =========================================================================
-    df = pd.read_pickle(path = 'multi_df_cleaned.pkl')
+    df = pd.read_pickle(path='multi_df_cleaned.pkl')
     # Selecting variables for logit regression from repeated nested cv analysis
     logit_df = df[['s0_cesd5',
                    's0_med_n05ah',
@@ -140,25 +140,23 @@ if __name__ == '__main__':
     )
 
     # Creating a medication index to control for in the analysis
-    medication_confounds = df[
-        ['s0_med_c07',
-         's0_med_n02cc',
-         's0_med_n05ab',
-         's0_med_n05ad',
-         's0_med_n05af',
-         's0_med_n05ah',
-         's0_med_n05al',
-         's0_med_n05an',
-         's0_med_n05ax',
-         's0_med_n05ba',
-         's0_med_n05cf',
-         's0_med_n05ch',
-         's0_med_n05cm',
-         's0_med_n06ab',
-         's0_med_n06af',
-         's0_med_n06ax',
-         's0_med_n06ba']
-    ]
+    medication_confounds = df[['s0_med_c07',
+                               's0_med_n02cc',
+                               's0_med_n05ab',
+                               's0_med_n05ad',
+                               's0_med_n05af',
+                               's0_med_n05ah',
+                               's0_med_n05al',
+                               's0_med_n05an',
+                               's0_med_n05ax',
+                               's0_med_n05ba',
+                               's0_med_n05cf',
+                               's0_med_n05ch',
+                               's0_med_n05cm',
+                               's0_med_n06ab',
+                               's0_med_n06af',
+                               's0_med_n06ax',
+                               's0_med_n06ba']]
     
     medication_confounds = medication_confounds.apply(lambda x: x.astype(int))
     medication_confounds['med_index'] = (
@@ -188,13 +186,13 @@ if __name__ == '__main__':
     logit_df['relapse'] = logit_df['relapse'].astype(int)
 
     # Preparing the data for the model
-    X = logit_df.drop('relapse', axis = 1)
+    X = logit_df.drop('relapse', axis=1)
     y = logit_df['relapse']
     X = X.apply(lambda x: x.astype(float))
     X = (X - X.mean()) / X.std()  # Standardising due to multicollinearity
     X['relapse'] = y  # Adding back in the dep var
     logit_df = X  # Naming back to df now after standardising the ind vars
-    logit_df = logit_df.dropna(axis = 0)  # Drop missings
+    logit_df = logit_df.dropna(axis=0)  # Drop missings
 
     # Logistic regression model
     model = smf.logit(formula = 'relapse ~ C(CESD_5_trouble_concentrating)'
@@ -213,21 +211,21 @@ if __name__ == '__main__':
                                 '+ C(Smoke)'
                                 '+ BMI'
                                 '+ med_index',
-                      data = logit_df)
+                      data=logit_df)
 
     result = model.fit()
-    main_effect_aic = aic(llf = -152.36, nobs = 322, df_modelwc = 22)
+    main_effect_aic = aic(llf=-152.36, nobs=322, df_modelwc=22)
     print(result.summary())
     print(np.exp(result.params))
     print(np.exp(result.conf_int()))
     print(main_effect_aic)
 
     # Getting a dataframe of results
-    results_df = logit_results_to_dataframe(results = result)
+    results_df = logit_results_to_dataframe(results=result)
     logit_p_vals = result.pvalues  # Adding in corrected p values
-    corrected_log_p_vals = multipletests(pvals = logit_p_vals,
-                                         alpha = 0.05,
-                                         method = 'fdr_bh')
+    corrected_log_p_vals = multipletests(pvals=logit_p_vals,
+                                         alpha=0.05,
+                                         method='fdr_bh')
     corrected_log_p_vals = list(corrected_log_p_vals[1])
     results_df['fdr_pvals'] = corrected_log_p_vals
 
@@ -239,7 +237,7 @@ if __name__ == '__main__':
                              '2.5%',
                              '97.5%']]
 
-    results_df = results_df.apply(lambda x: x.round(decimals = 4))
+    results_df = results_df.apply(lambda x: x.round(decimals=4))
     results_df.to_csv('multi_log_reg_results.csv')
 
     # =========================================================================
@@ -249,8 +247,8 @@ if __name__ == '__main__':
     full_cohort_df = pd.read_csv('full_cohort_with_imaging.csv')
     mdd_cohort = full_cohort_df.loc[full_cohort_df['s0_l_kohorte'] == 1]
     no_mdd_cohort = full_cohort_df.loc[full_cohort_df['s0_l_kohorte'] == 3]
-    print(np.round(mdd_cohort['Rhippo'].mean(), decimals = 2))    # Vol 4033.07
-    print(np.round(no_mdd_cohort['Rhippo'].mean(), decimals = 2)) # Vol 4066.39
+    print(np.round(mdd_cohort['Rhippo'].mean(), decimals=2))    # Vol 4033.07
+    print(np.round(no_mdd_cohort['Rhippo'].mean(), decimals=2)) # Vol 4066.39
 
     full_cohort_df['s0_l_kohorte'] = (full_cohort_df['s0_l_kohorte']
                                       .replace({1:1, 3:0}))
@@ -262,8 +260,8 @@ if __name__ == '__main__':
                                      's0_l_kohorte']]
 
     # Standardising the independent vars
-    full_cohort_df = full_cohort_df.dropna(axis = 0)
-    X = full_cohort_df.drop('Rhippo', axis = 1)
+    full_cohort_df = full_cohort_df.dropna(axis=0)
+    X = full_cohort_df.drop('Rhippo', axis=1)
     y = full_cohort_df['Rhippo']
     X = (X - X.mean()) / X.std()
     full_cohort_df = X
@@ -290,11 +288,11 @@ if __name__ == '__main__':
 
     t_test_results = ttest_ind(a = t_test_df['Rhippo'].loc[True],
                                b = t_test_df['Rhippo'].loc[False],
-                               equal_var = False,
-                               nan_policy = 'omit')
+                               equal_var=False,
+                               nan_policy='omit')
 
-    Ttest_indResult(statistic = -1.2055968862752673,
-                    pvalue = 0.22825820500830207)
+    Ttest_indResult(statistic=-1.2055968862752673,
+                    pvalue=0.22825820500830207)
 
     # CONCLUSION: The effect is in the right direction but not significant.
 
@@ -310,8 +308,8 @@ if __name__ == '__main__':
     corr = uni_df.corr()
     hippo_corr = (pd.DataFrame(corr['Rhippo']
                   .drop('Rhippo'))
-                  .sort_values(by = 'Rhippo',
-                               ascending = False))
+                  .sort_values(by='Rhippo',
+                               ascending=False))
 
     # Interestingly, benzos are associated with an increase in hippo volumes
     hipp_model = df[['s0_hamd_17total',
@@ -341,7 +339,7 @@ if __name__ == '__main__':
                                    + hipp_model['s0_med_c07']
                                    + hipp_model['s0_med_n06ax'])
 
-    hipp_model = hipp_model.dropna(axis = 0)
+    hipp_model = hipp_model.dropna(axis=0)
     hipp_model = hipp_model.rename(
         columns = {'Rhippo':'Right_hippo_vol',
                    's0_hamd_17total':'HAMD_17',
@@ -355,7 +353,7 @@ if __name__ == '__main__':
     )
 
     hipp_model['Sex'] = hipp_model['Sex'].astype(int)
-    X = hipp_model.drop('Right_hippo_vol', axis = 1)
+    X = hipp_model.drop('Right_hippo_vol', axis=1)
     y = hipp_model['Right_hippo_vol']
     X = (X - X.mean()) / X.std()
     hipp_model = X
@@ -491,12 +489,11 @@ if __name__ == '__main__':
                  label='Female: Benzo = False',
                  ax=None)
 
-    # Title, label, legend
     plt.title("""Female right hippocampal volume stratified by 
                  benzodiazepine use""",
-              fontdict = {'fontsize': 22})
-    plt.xlabel('Right hippocampal volume', fontdict = {'fontsize':16})
-    plt.legend(loc = 'upper right')
+              fontdict={'fontsize': 22})
+    plt.xlabel('Right hippocampal volume', fontdict={'fontsize':16})
+    plt.legend(loc='upper right')
     plt.show()
 
     # Men
@@ -532,12 +529,11 @@ if __name__ == '__main__':
                  label='Male: Benzo = False',
                  ax=None)
 
-    # Title, labels, legends
     plt.title("""Male right hippocampal volume stratified by 
                  benzodiazepine use""",
-              fontdict = {'fontsize': 22})
-    plt.xlabel('Right hippocampal volume', fontdict = {'fontsize':16})
-    plt.legend(loc = 'upper right')
+              fontdict={'fontsize': 22})
+    plt.xlabel('Right hippocampal volume', fontdict={'fontsize':16})
+    plt.legend(loc='upper right')
     plt.show()
 
     # There is a significant gender and benzo effect on hippocampal volume.
@@ -550,19 +546,19 @@ if __name__ == '__main__':
 
     # Now in a logit model - not significant
     hipp_model['relapse'] = hipp_model['relapse'].astype(int)
-    benz_relapse = smf.logit(formula = 'relapse ~ C(Benzodiazepines) * C(Sex)',
-                             data = hipp_model).fit()
+    benz_relapse = smf.logit(formula='relapse ~ C(Benzodiazepines) * C(Sex)',
+                             data=hipp_model).fit()
     benz_result = benz_relapse.summary()
     print(benz_result)
 
     # First, what are the overall gender differences?
     men_hippo = df.loc[(df['s0_sex']) == 1]
-    print(np.round(men_hippo['Rhippo'].mean(), decimals = 2))
-    print(np.round(men_hippo['Rhippo'].std(), decimals = 2))
+    print(np.round(men_hippo['Rhippo'].mean(), decimals=2))
+    print(np.round(men_hippo['Rhippo'].std(), decimals=2))
     
     wom_hippo = df.loc[(df['s0_sex']) == 2]
-    print(np.round(wom_hippo['Rhippo'].mean(), decimals = 2))
-    print(np.round(wom_hippo['Rhippo'].std(), decimals = 2))
+    print(np.round(wom_hippo['Rhippo'].mean(), decimals=2))
+    print(np.round(wom_hippo['Rhippo'].std(), decimals=2))
 
     ols_anti_model = smf.ols(formula = 'Rhippo ~ '
                                        '+ s0_sex'
@@ -576,15 +572,15 @@ if __name__ == '__main__':
     # and those who do not, vs women who relapse and those who do not.
     men_relapse = df.loc[(df['s0_sex'] == 1) & (df['relapse'] == True)]
     men_no_relapse = df.loc[(df['s0_sex'] == 1) & (df['relapse'] == False)]
-    print(np.round(men_relapse['Rhippo'].mean(), decimals = 2))
-    print(np.round(men_no_relapse['Rhippo'].mean(), decimals = 2))
+    print(np.round(men_relapse['Rhippo'].mean(), decimals=2))
+    print(np.round(men_no_relapse['Rhippo'].mean(), decimals=2))
     # 4397.93
     # 4244.42
 
     wom_relapse = df.loc[(df['s0_sex'] == 2) & (df['relapse'] == True)]
     wom_no_relapse = df.loc[(df['s0_sex'] == 2) & (df['relapse'] == False)]
-    print(np.round(wom_relapse['Rhippo'].mean(), decimals = 2))
-    print(np.round(wom_no_relapse['Rhippo'].mean(), decimals = 2))
+    print(np.round(wom_relapse['Rhippo'].mean(), decimals=2))
+    print(np.round(wom_no_relapse['Rhippo'].mean(), decimals=2))
     # 3954.67
     # 3847.37
 
@@ -621,19 +617,18 @@ if __name__ == '__main__':
                                            | (df['s0_med_n05al'] == 1), 1, 0)
     
     anti_psych_yes = df.loc[df['anti_psychotic_index'] == 1]
-    print(np.round(anti_psych_yes['Rhippo'].mean(), decimals = 2))
-    print(np.round(anti_psych_yes['Rhippo'].std(), decimals = 2))
+    print(np.round(anti_psych_yes['Rhippo'].mean(), decimals=2))
+    print(np.round(anti_psych_yes['Rhippo'].std(), decimals=2))
 
     anti_psych_no = df.loc[df['anti_psychotic_index'] == 0]
-    print(np.round(anti_psych_no['Rhippo'].mean(), decimals = 2))
-    print(np.round(anti_psych_no['Rhippo'].std(), decimals = 2))
-
+    print(np.round(anti_psych_no['Rhippo'].mean(), decimals=2))
+    print(np.round(anti_psych_no['Rhippo'].std(), decimals=2))
 
     ols_anti_model = smf.ols(formula = 'Rhippo ~ '
                                        'C(anti_psychotic_index)'
                                        '+ s0_sex'
                                        '+ s0_alter1',
-                             data = df).fit()
+                             data=df).fit()
 
     print(ols_anti_model.summary())
 
@@ -652,7 +647,7 @@ if __name__ == '__main__':
     men_control = df.loc[(df['relapse'] == False) & (df['s0_sex'] == 1.0)]
 
     # Small difference when just looking at the full sample of men.
-    print(np.round(men_cases['Rhippo'].describe(), decimals = 2))
+    print(np.round(men_cases['Rhippo'].describe(), decimals=2))
     # count      43.00
     # mean     4397.93
     # std       380.40
@@ -662,7 +657,7 @@ if __name__ == '__main__':
     # 75%      4693.35
     # max      5518.90
 
-    print(np.round(men_control['Rhippo'].describe(), decimals = 2))
+    print(np.round(men_control['Rhippo'].describe(), decimals=2))
     # count     108.00
     # mean     4244.42
     # std       567.25
@@ -684,7 +679,7 @@ if __name__ == '__main__':
                                      & (df['s0_sex'] == 1.0)]
 
     # Becomes large when we drop those on benzos and antipsychotics.
-    print(np.round(men_clean_cases['Rhippo'].describe(), decimals = 2))
+    print(np.round(men_clean_cases['Rhippo'].describe(), decimals=2))
     # count      13.00
     # mean     4684.56
     # std       330.72
@@ -694,7 +689,7 @@ if __name__ == '__main__':
     # 75%      4820.60
     # max      5518.90
 
-    print(np.round(men_clean_control['Rhippo'].describe(), decimals = 2))
+    print(np.round(men_clean_control['Rhippo'].describe(), decimals=2))
     # count      62.00
     # mean     4228.11
     # std       677.83
@@ -714,7 +709,7 @@ if __name__ == '__main__':
                                  & (df['s0_sex'] == 2.0)]
 
     # Small difference when just looking at the full sample of women.
-    print(np.round(wom_cases['Rhippo'].describe(), decimals = 2))
+    print(np.round(wom_cases['Rhippo'].describe(), decimals=2))
     # count      59.00
     # mean     3954.67
     # std       364.93
@@ -724,7 +719,7 @@ if __name__ == '__main__':
     # 75%      4204.80
     # max      4791.40
 
-    print(np.round(wom_control['Rhippo'].describe(), decimals = 2))
+    print(np.round(wom_control['Rhippo'].describe(), decimals=2))
     # count     168.00
     # mean     3847.37
     # std       344.53
@@ -748,7 +743,7 @@ if __name__ == '__main__':
     # The opposite effect compared to what happened with men, when we remove
     # those on antipsychotics and benzodiazepines, the effect of larger
     # hippocampal volume in relapsing women mostly disappears.
-    print(np.round(wom_clean_cases['Rhippo'].describe(), decimals = 2))
+    print(np.round(wom_clean_cases['Rhippo'].describe(), decimals=2))
     # count      20.00
     # mean     3870.46
     # std       285.73
@@ -758,7 +753,7 @@ if __name__ == '__main__':
     # 75%      4029.95
     # max      4513.80
 
-    print(np.round(wom_clean_control['Rhippo'].describe(), decimals = 2))
+    print(np.round(wom_clean_control['Rhippo'].describe(), decimals=2))
     # count     108.00
     # mean     3828.33
     # std       320.00
@@ -802,7 +797,7 @@ if __name__ == '__main__':
 
     # What ranges are their thyroid levels in? Have they recovered? Thus, no
     # meds?
-    print(np.round(thy_no_meds_df.describe(), decimals = 2))
+    print(np.round(thy_no_meds_df.describe(), decimals=2))
     # Healthy reference ranges
     # tsh = 0.4 to 4.0 mU/l
     # t3  = 3.5 to 7.8 pmol/l
@@ -830,7 +825,7 @@ if __name__ == '__main__':
     # ========================================================================
     # CHOLESTEROL
     # ========================================================================
-    # Memication use
+    # Medication use
     meds = list(df.loc[:, 's0_med_a02':'s0_med_v06'].columns)  # Med list
     outcomes = ['relapse', 's0_cholesterol']  # Outcomes for uni corrs
     final_preds = meds + outcomes
@@ -840,8 +835,8 @@ if __name__ == '__main__':
     corr = uni_df.corr()
     cholesterol_corr = (pd.DataFrame(corr['s0_cholesterol']
                           .drop('s0_cholesterol'))
-                          .sort_values(by = 's0_cholesterol',
-                                       ascending = False))
+                          .sort_values(by='s0_cholesterol',
+                                       ascending=False))
 
     # Medication top associations with cholesterol
 
@@ -870,8 +865,8 @@ if __name__ == '__main__':
                   's0_bia_bmi',
                   's0_cholesterol']]
 
-    chol_df = chol_df.dropna(axis = 0)
-    X = chol_df.drop('s0_cholesterol', axis = 1)
+    chol_df = chol_df.dropna(axis=0)
+    X = chol_df.drop('s0_cholesterol', axis=1)
     y = chol_df['s0_cholesterol']
     X = X.apply(lambda x:x.astype(float))
     X = (X - X.mean()) / X.std()
