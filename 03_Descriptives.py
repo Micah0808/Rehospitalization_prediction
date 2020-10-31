@@ -15,6 +15,19 @@ os.chdir('/Users/MicahJackson/anaconda/pycharm_wd/hospitilization_pred')
 
 
 def desc_stats(data = str, pkl=True):
+    """
+    
+    Basic function to read in, parse, and provide descriptive statistics
+    on patients.
+    
+    :param data: Pandas dataframe
+    :param pkl: If True, dataframe is serialized pickle file, else, csv
+    
+    :return: Cases and controls -Summary statistics of Pandas dataframe
+             desc_df = Dataframe with descriptive variable subset
+             full_df = The full Pandas dataframe
+  
+    """
 
     if pkl is True:
         desc_df = pd.read_pickle(data)
@@ -34,9 +47,10 @@ def desc_stats(data = str, pkl=True):
     case = desc_df.loc[desc_df['relapse'] == 1]
     control = desc_df.loc[desc_df['relapse'] == 0]
 
-    return (np.round(case.describe(), decimals = 2),
-            np.round(control.describe(), decimals = 2),
-            desc_df, full_df)
+    return (np.round(case.describe(), decimals=2),
+            np.round(control.describe(), decimals=2),
+            desc_df, 
+            full_df)
 
 
 if __name__ == '__main__':
@@ -55,29 +69,29 @@ if __name__ == '__main__':
     desc_df[(desc_df.s0_sex == 1) & (desc_df.relapse == 1.0)].shape  # Men
     desc_df[(desc_df.s0_sex == 1) & (desc_df.relapse == 0.0)].shape
 
-# =============================================================================
-# Cases
-#        relapse     Age  s0_hamd_17total  s0_cesdsum  n_epi_inpatient  s0_sex
-# count    102.0  102.00           101.00      102.00           101.00  102.00
-# mean       1.0   49.03            15.33       31.30             2.06    1.58
-# std        0.0    7.32             6.59       12.97             2.00    0.50
-# min        1.0   34.96             0.00        1.00             0.00    1.00
-# 25%        1.0   43.08            11.00       22.25             1.00    1.00
-# 50%        1.0   49.51            16.00       33.00             1.00    2.00
-# 75%        1.0   55.34            20.00       41.00             2.00    2.00
-# max        1.0   63.96            27.00       56.00            10.00    2.00
+    # =============================================================================
+    # Cases
+    #        relapse     Age  s0_hamd_17total  s0_cesdsum  n_epi_inpatient  s0_sex
+    # count    102.0  102.00           101.00      102.00           101.00  102.00
+    # mean       1.0   49.03            15.33       31.30             2.06    1.58
+    # std        0.0    7.32             6.59       12.97             2.00    0.50
+    # min        1.0   34.96             0.00        1.00             0.00    1.00
+    # 25%        1.0   43.08            11.00       22.25             1.00    1.00
+    # 50%        1.0   49.51            16.00       33.00             1.00    2.00
+    # 75%        1.0   55.34            20.00       41.00             2.00    2.00
+    # max        1.0   63.96            27.00       56.00            10.00    2.00
 
-# =============================================================================
-# Controls
-#         relapse     Age   s0_hamd_17total  s0_cesdsum  n_epi_inpatient s0_sex
-# count    278.0    278.00         278.00      276.00          274.00    278.00
-# mean       0.0     49.91          12.71       25.40            1.42      1.61
-# std        0.0      7.38           6.33       11.50            0.90      0.49
-# min        0.0     35.15           0.00        0.00            0.00      1.00
-# 25%        0.0     44.23           8.00       16.75            1.00      1.00
-# 50%        0.0     49.86          13.00       26.00            1.00      2.00
-# 75%        0.0     55.73          17.00       34.25            2.00      2.00
-# max        0.0     65.37          33.00       48.00            6.00      2.00
+    # =============================================================================
+    # Controls
+    #         relapse     Age   s0_hamd_17total  s0_cesdsum  n_epi_inpatient s0_sex
+    # count    278.0    278.00         278.00      276.00          274.00    278.00
+    # mean       0.0     49.91          12.71       25.40            1.42      1.61
+    # std        0.0      7.38           6.33       11.50            0.90      0.49
+    # min        0.0     35.15           0.00        0.00            0.00      1.00
+    # 25%        0.0     44.23           8.00       16.75            1.00      1.00
+    # 50%        0.0     49.86          13.00       26.00            1.00      2.00
+    # 75%        0.0     55.73          17.00       34.25            2.00      2.00
+    # max        0.0     65.37          33.00       48.00            6.00      2.00
 
     # Subsetting vars for t-tests
     df_continuous = desc_df[['Age',
@@ -122,23 +136,23 @@ if __name__ == '__main__':
                       'relapse']]
 
     med_df = med_df.rename(
-        columns = {'s0_med_c07':'Beta_blocking_agents',
-                   's0_med_n02cc':'Selective_serotonin_agonists',
-                   's0_med_n05ab':'Phenothiazines_with_piperazine_structure',
-                   's0_med_n05ad':'Butyrophenone_derivates',
-                   's0_med_n05af':'Thioxanthene_derivates',
-                   's0_med_n05ah':'Diazepines_oxazepined_thiazepines_oxepines',
-                   's0_med_n05al':'Benzamides',
-                   's0_med_n05an':'Lithium',
-                   's0_med_n05ax':'Other_antipsychotics',
-                   's0_med_n05ba':'Benzodiazepine_derivates',
-                   's0_med_n05cd':'Benzodiazepine_derivates_2',
-                   's0_med_n05cf':'Benzodiazepine_related_drugs',
-                   's0_med_n05ch':'Melatonin_receptor_agonists',
-                   's0_med_n06aa':'Non_selective_momoamine_reuptake_inhibitors',
-                   's0_med_n06ab':'Selective_serotonin_reuptake_inhibitors',
-                   's0_med_n06af':'Monoamine_oxidase_inhibitors_non_selective',
-                   's0_med_n06ax':'Other_antidepressants'}
+        columns = {'s0_med_c07': 'Beta_blocking_agents',
+                   's0_med_n02cc': 'Selective_serotonin_agonists',
+                   's0_med_n05ab': 'Phenothiazines_with_piperazine_structure',
+                   's0_med_n05ad': 'Butyrophenone_derivates',
+                   's0_med_n05af': 'Thioxanthene_derivates',
+                   's0_med_n05ah': 'Diazepines_oxazepined_thiazepines_oxepines',
+                   's0_med_n05al': 'Benzamides',
+                   's0_med_n05an': 'Lithium',
+                   's0_med_n05ax': 'Other_antipsychotics',
+                   's0_med_n05ba': 'Benzodiazepine_derivates',
+                   's0_med_n05cd': 'Benzodiazepine_derivates_2',
+                   's0_med_n05cf': 'Benzodiazepine_related_drugs',
+                   's0_med_n05ch': 'Melatonin_receptor_agonists',
+                   's0_med_n06aa': 'Non_selective_momoamine_reuptake_inhibitors',
+                   's0_med_n06ab': 'Selective_serotonin_reuptake_inhibitors',
+                   's0_med_n06af': 'Monoamine_oxidase_inhibitors_non_selective',
+                   's0_med_n06ax': 'Other_antidepressants'}
     )
 
     # Overall medication classes
@@ -183,7 +197,7 @@ if __name__ == '__main__':
                           'Phenothiazines_with_piperazine_structure',
                           'Melatonin_receptor_agonists',
                           'Benzodiazepine_related_drugs'],
-                         axis = 1)
+                         axis=1)
 
     # How many are currently taking a psychotropic medication of some kind?
     med_df['med_load'] = (
@@ -218,8 +232,8 @@ if __name__ == '__main__':
 
     # Setting up for chi2 tests
     independent_ordinal_vars = (med_df
-                                .drop('relapse', axis = 1)
-                                .dropna(axis = 0)
+                                .drop('relapse', axis=1)
+                                .dropna(axis=0)
                                 .apply(lambda x: x.astype(int)))
 
     # Running chi2 tests
@@ -229,25 +243,25 @@ if __name__ == '__main__':
 
     for o in independent_ordinal_vars:
         tab = pd.crosstab(med_df['relapse'], independent_ordinal_vars[o])
-        chi2, p, dof, expected = chi2_contingency(observed = tab, 
-                                                  correction = False)
+        chi2, p, dof, expected = chi2_contingency(observed=tab, 
+                                                  correction=False)
         chi_square.append(chi2)
         p_val.append(p)
         dof_list.append(dof)
 
     # Now let's get these counts in a dataframe that we can append p-values to
     ordinal_counts_by_group = (med_df
-                               .dropna(axis = 0)
+                               .dropna(axis=0)
                                .apply(lambda x: x.astype(int))
                                .groupby('relapse')
                                .sum()
                                .transpose()
                                .reset_index()
-                               .rename(columns = {'index':'Medication',
-                                                  0:'Rehosp? No',
-                                                  1:'Rehosp? Yes'}))
+                               .rename(columns = {'index': 'Medication',
+                                                  0: 'Rehosp? No',
+                                                  1: 'Rehosp? Yes'}))
 
-    p_val_round = list(np.round(p_val, decimals = 3))
+    p_val_round = list(np.round(p_val, decimals=3))
     ordinal_counts_by_group['P'] = p_val_round
     ordinal_counts_by_group.to_csv('rehosp_medication_summary.csv')
 
