@@ -1,3 +1,17 @@
+#!/usr/bin/env python
+# _*_ coding: utf-8 _*_
+
+"""
+
+Descriptive statistics for the BiDirect cohort used in the
+re-hospitalization analysis
+
+"""
+
+__author__ = 'Micah Cearns'
+__contact__ = 'micahcearns@gmail.com'
+__date__ = 'Jan 2019'
+
 # Manipulation and plotting
 import numpy  as np
 import pandas as pd
