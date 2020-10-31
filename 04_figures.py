@@ -7,6 +7,10 @@ Visualization of predictors from Bidirect rehospitalization prediction
 
 """
 
+__author__ = 'Micah Cearns'
+__contact__ = 'micahcearns@gmail.com'
+__date__ = 'Jan 2019'
+
 # Imputation
 from MICE import IterativeImputer
 from sklearn.preprocessing import StandardScaler
