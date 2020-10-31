@@ -193,8 +193,10 @@ def na_percent(raw_df):
     """
 
     raw_df = raw_df.loc[:1003] # selecting cases only
-    na_percent = pd.DataFrame(raw_df.isna().mean()*100,
-                              columns = ['Percent_missing'])
+    na_percent = pd.DataFrame(raw_df
+                              .isna()
+                              .mean()*100,
+                              columns=['Percent_missing'])
   
     return na_percent
 
@@ -211,8 +213,8 @@ def build_english_codebook(df, raw_codebook):
     # Cleaning up the final df names
     predictors = df.columns.tolist()
     pred_df = pd.DataFrame(data=predictors, columns=['Predictors'])[0:424]
-    pred_df['Predictors'] = pred_df['Predictors'].str.replace(pat = 's0_',
-                                                              repl = '')
+    pred_df['Predictors'] = pred_df['Predictors'].str.replace(pat='s0_',
+                                                              repl='')
 
     # Processing the codebook
     codebook = raw_codebook[['Variablenname', 'Variablenlabel']]
@@ -222,18 +224,18 @@ def build_english_codebook(df, raw_codebook):
     )
     
     # Merging the dataframes
-    merged_df = pd.merge(left = pred_df,
-                         right = codebook,
-                         how = 'left',
-                         on = 'Predictors')
+    merged_df = pd.merge(left=pred_df,
+                         right=codebook,
+                         how='left',
+                         on='Predictors')
 
     # Removing special characters
     merged_df['Predictor_labels'] = (merged_df['Predictor_labels']
-                                     .replace(to_replace = np.nan,
-                                              value = 'fehlt'))
+                                     .replace(to_replace=np.nan,
+                                              value='fehlt'))
     merged_df['Predictor_labels'] = (merged_df['Predictor_labels']
-                                     .replace(regex = '\W+',
-                                              value = ' '))
+                                     .replace(regex='\W+',
+                                              value=' '))
 
     # Translating
     translator = Translator()
@@ -252,19 +254,19 @@ def build_english_codebook(df, raw_codebook):
 if __name__ == '__main__':
 
     # Reading in data
-    raw_df = pd.read_csv('bidirect_2018.csv', low_memory = False)
-    raw_df.drop('Unnamed: 0', axis = 1, inplace = True)
-    bidirect_codebook = pd.read_excel(io = 'Codebook-BiDirect.xlsx',
-                                      sheet_name = 'Variablenbeschreibung')
+    raw_df = pd.read_csv('bidirect_2018.csv', low_memory=False)
+    raw_df.drop('Unnamed: 0', axis=1, inplace=True)
+    bidirect_codebook = pd.read_excel(io='Codebook-BiDirect.xlsx',
+                                      sheet_name='Variablenbeschreibung')
 
     # Removing any missing data codes so they can be imputed properly later
-    raw_df.replace(to_replace = [-99, -999], value = np.nan)
+    raw_df.replace(to_replace=[-99, -999], value=np.nan)
 
     # Only selecting those with MDD
     raw_df = raw_df.loc[raw_df.s0_l_kohorte == 1]
 
     # Filtering out those who are missing relapse data
-    raw_df['s2_dp_episode'].replace([2,3], np.nan, inplace = True)
+    raw_df['s2_dp_episode'].replace([2,3], np.nan, inplace=True)
     raw_df = raw_df[raw_df['s2_dp_episode'].isna() == False]
 
     # Setting up the outcome variable, the logic is that a patient must have
@@ -281,10 +283,10 @@ if __name__ == '__main__':
     # Selecting baseline predictors
     raw_df = raw_df.loc[:, 'idbidirect':'s0_psychchip']
     # Adding back in relapse status
-    raw_df = raw_df.merge(right = outcome, on = 'idbidirect')
+    raw_df = raw_df.merge(right=outcome, on='idbidirect')
     # Merging with PGRS scores
     pgrs_df = pgrs_import()
-    raw_df = raw_df.merge(right = pgrs_df, on = 'idbidirect')
+    raw_df = raw_df.merge(right=pgrs_df, on='idbidirect')
     
     # Structural imaging
     surf_df = pd.read_csv('CorticalMeasuresENIGMA_SurfAvg.csv')
@@ -412,10 +414,8 @@ if __name__ == '__main__':
 
     # Health changes and Stroop test
     health_vars = list(raw_df.loc[:, 's0_s_lsstair':'s0_stroop'].columns)
-
     # Medication taken at baseline assesment
     medication_vars = list(raw_df.loc[:, 's0_med_a02':'s0_med_v06'].columns)
-
     # IPAQ physical activity
     exercise_vars = list(raw_df.loc[:, 's0_ipaq_f1':
                                        's0_ipaq_total_met_100hours'].columns)
@@ -432,7 +432,7 @@ if __name__ == '__main__':
         'pgc_scz_pgrs'
     ]
 
-    outcome = ['relapse']
+    outcome = ['relapse']  # To be added back into each df
 
     # Merging variable name lists
     final_vars = (imaging_vars
@@ -447,29 +447,28 @@ if __name__ == '__main__':
                   + exercise_vars
                   + outcome)
 
-    # Selecting from df
+    # Selecting from the raw df
     raw_df = raw_df[final_vars]
 
-    # Inspecting
+    # Checking that all columns were selected
     print(raw_df.columns)
 
     # Dropping unnecessary columns
-    drop_one = list(raw_df.loc[:, 's0_d_ishi_t02':'s0_d_smell12'].columns)
-    drop_two = list(raw_df.loc[:, 's0_s_version':'s0_basic_n'].columns)
-    drop_three = list(raw_df.loc[:, 's0_emo_valence':
-                                    's0_emo_aroudfneg'].columns)
+    drop_one = list(raw_df.loc[:, 's0_d_ishi_t02': 's0_d_smell12'].columns)
+    drop_two = list(raw_df.loc[:, 's0_s_version': 's0_basic_n'].columns)
+    drop_three = list(raw_df.loc[:, 's0_emo_valence': 's0_emo_aroudfneg'].columns)
     drop_four = ['s0_s_lsnutri']
 
     final_drop = (drop_one + drop_two + drop_three + drop_four)
-    raw_df.drop(final_drop, axis = 1, inplace = True)
+    raw_df.drop(final_drop, axis=1, inplace=True)
 
     # Going through all strings and finding those that are actually meant to be
     # numerical yet have random string data accidentally placed within column
     # cells
-    obj_names = list(raw_df.select_dtypes(include = [object]))
+    obj_names = list(raw_df.select_dtypes(include=[object]))
 
     # Dropping strings, all noise vars with meta data
-    raw_df.drop(obj_names, axis = 1, inplace = True)
+    raw_df.drop(obj_names, axis=1, inplace=True)
 
     # Finding potential outliers that are based off of genuine coding errors
     potential_outliers = outlier_detector(raw_df)
@@ -477,139 +476,140 @@ if __name__ == '__main__':
     # Making a subsetted raw_df for inspection that contains potential outliers
     outlier_raw_df = raw_df[potential_outliers]
 
+    # Replacing incorrect values with nans
     raw_df['s0_bildungsgrad'].replace(
-        to_replace = [1991.0,
-                      1974.0,
-                      1987.0,
-                      1969.0,
-                      1979.0,
-                      1990.0,
-                      1995.0,
-                      2002.0,
-                      1968.0],
-        value = np.nan,
-        inplace = True
+        to_replace=[1991.0,
+                    1974.0,
+                    1987.0,
+                    1969.0,
+                    1979.0,
+                    1990.0,
+                    1995.0,
+                    2002.0,
+                    1968.0],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_ipaq_category'].replace(
-        to_replace = [3559.500000,
-                      946.500000,
-                      678.000000,
-                      1039.500000,
-                      1386.000000,
-                      0.482500,
-                      3298.000000,
-                      0.292667,
-                      5586.000000,
-                      1410.000000,
-                      1120.000000],
-        value = np.nan,
-        inplace = True
+        to_replace=[3559.500000,
+                    946.500000,
+                    678.000000,
+                    1039.500000,
+                    1386.000000,
+                    0.482500,
+                    3298.000000,
+                    0.292667,
+                    5586.000000,
+                    1410.000000,
+                    1120.000000],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_pi_n_inpatient'].replace(
-        to_replace = [320040.0,
-                      320111.0,
-                      99],
-        value = np.nan,
-        inplace = True
+        to_replace=[320040.0,
+                    320111.0,
+                    99],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_hamd_17total'].replace(
-        to_replace = [18002.0,
-                      19220.0],
-        value = np.nan,
-        inplace = True
+        to_replace=[18002.0,
+                    19220.0],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_pm_mela_lif'].replace(
-        to_replace = [99.0,
-                      5.0,
-                      2.0],
-        value = np.nan,
-        inplace = True
+        to_replace=[99.0,
+                    5.0,
+                    2.0],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_subtype_mini_prob'].replace(
-        to_replace = 99.0,
-        value = np.nan,
-        inplace = True
+        to_replace=99.0,
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_psqi4'].replace(
-        to_replace = [82800.0,
-                      75600.0],
-        value = np.nan,
-        inplace = True
+        to_replace=[82800.0,
+                    75600.0],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_ks_wmigspks'].replace(
-        to_replace = [18648.0,
-                      19047.0],
-        value = np.nan,
-        inplace = True
+        to_replace=[18648.0,
+                    19047.0],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_ipaq_f7m'].replace(
-        to_replace = [1756.0,
-                      2895.0],
-        value = np.nan,
-        inplace = True
+        to_replace=[1756.0,
+                    2895.0],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_ipaq_total_met'].replace(
-        to_replace = 0.0,
-        value = np.nan,
-        inplace = True
+        to_replace=0.0,
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_sex'].replace(
-        to_replace = [172,
-                      37.41168501],
-        value = np.nan,
-        inplace = True
+        to_replace=[172,
+                    37.41168501],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_cesd20'].replace(
-        to_replace = 40,
-        value = np.nan,
-        inplace = True
+        to_replace=40,
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_cesd2c'].replace(
-        to_replace = 40,
-        value = np.nan,
-        inplace = True
+        to_replace=40,
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_cesd3c'].replace(
-        to_replace = 18,
-        value = np.nan,
-        inplace = True
+        to_replace=18,
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_al_f4_s'].replace(
-        to_replace = 12,
-        value = np.nan,
-        inplace = True
+        to_replace=12,
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_eq5d_1'].replace(
-        to_replace = [10, 1],
-        value = np.nan,
-        inplace = True
+        to_replace=[10, 1],
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_eq5d_5'].replace(
-        to_replace = 75,
-        value = np.nan,
-        inplace = True
+        to_replace=75,
+        value=np.nan,
+        inplace=True
     )
 
     raw_df['s0_psqi6'].replace(
-        to_replace = [20, 13],
-        value = np.nan,
-        inplace = True
+        to_replace=[20, 13],
+        value=np.nan,
+        inplace=True
     )
 
     # Dropping zero variance variables
@@ -619,7 +619,7 @@ if __name__ == '__main__':
     raw_df = raw_df[raw_df.columns[raw_df.isnull().mean() < 0.2]]
 
     # Parsing to the correct data type. This is important for the ML pipeline
-    # as the imputation strategy depends on the dtype of each feature
+    # as the MICE imputation strategy depends on the dtype of each feature
     raw_df = to_category(raw_df)
     raw_df = to_float(raw_df)
     raw_df = to_boolean(raw_df)
@@ -863,34 +863,29 @@ if __name__ == '__main__':
                      'ipaq_total_met',
                      'ipaq_category'] + outcome]
 
-    # # Biomarker only and clinical only dfs
-    # imaging_df_cleaned = raw_df[imaging_vars + outcome]
-    # serum_df_cleaned = raw_df[serum_vars + outcome]
-    # cardio_df_cleaned = raw_df[cardio_vars + outcome]
-    # pgrs_df_cleaned = raw_df[pgrs_vars + outcome]
-    #
-    # biomarkers = (serum_vars
-    #               + imaging_vars
-    #               + cardio_vars
-    #               + pgrs_vars
-    #               + outcome)
-    #
-    # biomarkers_cleaned = raw_df[biomarkers]
-    # full_clin_vars_only = raw_df.drop(biomarkers, axis = 1)
-    # clin_df_cleaned = raw_df[list(full_clin_vars_only.columns) + outcome]
+    # Biomarker only and clinical only dfs
+    imaging_df_cleaned = raw_df[imaging_vars + outcome]
+    serum_df_cleaned = raw_df[serum_vars + outcome]
+    cardio_df_cleaned = raw_df[cardio_vars + outcome]
+    pgrs_df_cleaned = raw_df[pgrs_vars + outcome]
+    
+    biomarkers = (serum_vars
+                  + imaging_vars
+                  + cardio_vars
+                  + pgrs_vars
+                  + outcome)
+    
+    biomarkers_cleaned = raw_df[biomarkers]
+    full_clin_vars_only = raw_df.drop(biomarkers, axis = 1)
+    clin_df_cleaned = raw_df[list(full_clin_vars_only.columns) + outcome]
 
     # Exporting
     raw_df.to_csv('subset_multi_df_cleaned_psqi7.csv')
     raw_df.to_pickle('subset_multi_df_cleaned_psqi7.pkl')
-
-    # biomarkers_cleaned.to_pickle('subset_biomarkers_cleaned.pkl')
-    # imaging_df_cleaned.to_pickle('subset_imaging_df_cleaned.pkl')
-    # serum_df_cleaned.to_pickle('subset_serum_df_cleaned.pkl')
-    # cardio_df_cleaned.to_pickle('subset_cardio_df_cleaned.pkl')
-    # pgrs_df_cleaned.to_pickle('subset_pgrs_df_cleaned.pkl')
-    # clin_df_cleaned.to_pickle('subset_clin_df_cleaned.pkl')
-
-
-
-
+    biomarkers_cleaned.to_pickle('subset_biomarkers_cleaned.pkl')
+    imaging_df_cleaned.to_pickle('subset_imaging_df_cleaned.pkl')
+    serum_df_cleaned.to_pickle('subset_serum_df_cleaned.pkl')
+    cardio_df_cleaned.to_pickle('subset_cardio_df_cleaned.pkl')
+    pgrs_df_cleaned.to_pickle('subset_pgrs_df_cleaned.pkl')
+    clin_df_cleaned.to_pickle('subset_clin_df_cleaned.pkl')
 
