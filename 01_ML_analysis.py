@@ -115,10 +115,10 @@ def data_prep(data, y, dropna=False):
     rand_state = 10  # Setting random state for later cv
     df = pd.read_pickle(data)  # Reading in data
     if dropna is True:
-        df.dropna(axis = 0, inplace = True)
+        df.dropna(axis=0, inplace = True)
     else:
         pass
-    X = df.drop(y, axis = 1)  # Assigning the feature space to X
+    X = df.drop(y, axis=1)  # Assigning the feature space to X
     y = df[y]  # Class labels to predict
 
     return X, y, rand_state
@@ -137,32 +137,34 @@ def multi_metric_scorer():
 
                'Balanced_accuracy': make_scorer(
                    recall_score,
-                   pos_label = None,
-                   average = 'macro',
-                   sample_weight = None
+                   pos_label=None,
+                   average='macro',
+                   sample_weight=None
                ),
                'Sensitivity': make_scorer(
                    recall_score,
-                   pos_label = 1,
-                   average = 'binary',
-                   sample_weight = None
+                   pos_label=1,
+                   average='binary',
+                   sample_weight=None
                ),
                'Specificity': make_scorer(
                    recall_score,
-                   pos_label = 0,
-                   average = 'binary',
-                   sample_weight = None
+                   pos_label=0,
+                   average='binary',
+                   sample_weight=None
                ),
                'F1': make_scorer(
-                   f1_score, average = 'weighted'
+                   f1_score, average='weighted'
                ),
                'PPV': make_scorer(
                    precision_score,
-                   pos_label = 1,
-                   average = 'binary'
+                   pos_label=1,
+                   average='binary'
                ),
                'NPV': make_scorer(
-                   precision_score, pos_label = 0, average = 'binary'
+                   precision_score, 
+                   pos_label=0, 
+                   average='binary'
                ),
                'Brier_score': 'brier_score_loss'}
 
@@ -183,9 +185,11 @@ def pipeline_estimator(X,
                        n_jobs=1,
                        random_state=10):
     """
+    
     Pipeline for estimator training and testing. To avoid data leakage,
     pipeline architecture ensures that all transformations are conducted
     within the same cross-validation folds in a nested-scheme.
+    
     :param X: Feature matrix for prediction
     :param y: Vector of outcome labels to learn and predict
     :param estimator: Final model for fitting after transformations
@@ -201,6 +205,7 @@ def pipeline_estimator(X,
     :param n_jobs: How many cores to run for model fitting
     :param random_state: Pseudo random number for repeatable cross-validation
                          results
+                         
     :return: scores - Train and test scores
              tuned_pipe - Fitted and tuned pipeline
              rkfold - rkfold object
@@ -217,7 +222,7 @@ def pipeline_estimator(X,
                                max_value=5000.0,
                                random_state=random_state)
 
-    # Mean centering the data for the linear svm
+    # Mean centering the data for enet and the linear svm
     scaler = StandardScaler(with_mean=True, with_std=True)
 
     # Feature selection
@@ -226,7 +231,7 @@ def pipeline_estimator(X,
             estimator=SGDClassifier(loss='log',
                                     penalty='elasticnet',
                                     random_state=random_state),,
-            threshold = -np.inf
+            threshold=-np.inf
         )
     elif selector is 'f-test':
         selector = SelectKBest(score_func=f_classif)
@@ -241,7 +246,8 @@ def pipeline_estimator(X,
                    ('clf', estimator)]
     pipe = Pipeline(pipe_params, memory=cachedir)
     
-    # Establishing a grid search for hyperparameter optimisation
+    # Establishing a grid search for hyperparameter optimisation. This
+    # is also the inner loop object for model selection.
     tuned_pipe = GridSearchCV(estimator=pipe,
                               cv=rkfold,
                               param_grid=params,
@@ -249,7 +255,7 @@ def pipeline_estimator(X,
                               refit=True,
                               n_jobs=n_jobs)
 
-    # Outer cross validation loop with nested inner cross validation
+    # Outer cross validation loop with nested inner cross-validation
     if probas is True:
         scores = cross_val_predict(estimator=tuned_pipe,
                                    X=X,
@@ -322,7 +328,7 @@ def train_test_scores(estimator_scores):
     scores_df = (pd
                  .DataFrame
                  .from_dict(estimator_scores)
-                 .drop(['fit_time', 'score_time'], axis = 1))
+                 .drop(['fit_time', 'score_time'], axis=1))
     # Getting mean scores and standard deviations from repeated cv
     scores_mean = np.abs(scores_df.mean() * 100)
     scores_std = np.abs(scores_df.std() * 100)
@@ -330,8 +336,8 @@ def train_test_scores(estimator_scores):
     results = pd.DataFrame({'Accuracy': scores_mean,
                             'Standard Deviation': scores_std})
     # Sub-setting train and test results into their own dataframes
-    train_results = np.round(results.iloc[list(range(1, 19, 2))], decimals = 4)
-    test_results = np.round(results.iloc[list(range(0, 18, 2))], decimals = 4)
+    train_results = np.round(results.iloc[list(range(1, 19, 2))], decimals=4)
+    test_results = np.round(results.iloc[list(range(0, 18, 2))], decimals=4)
     # Returning Brier scores back to a value between 0 and 1
     train_results.iloc[8] = (train_results.iloc[8]/100)
     test_results.iloc[8] = (test_results.iloc[8]/100)
@@ -341,12 +347,17 @@ def train_test_scores(estimator_scores):
 
 def kbest(X, y, select_method, pipeline):
     """
+    
     Elastic net or univariate f-test based feature selection.
+    This function refits to the whole dataset after repeated nested cv
+    and returns the selected features as well as their coefficients.
+    
     :param X: Feature matrix for prediction
     :param y: Vector of outcome labels
     :param select_method: The elastic net of f-tests
     :param pipeline: Pipeline estimator for fitting with final selected
                      features
+                     
     :return: kbest_df - Dataframe of final selected features
              params_df - Dataframe of the selected hyperparameters
              best_inner_cv_test_score - Best grid search score for model
@@ -375,6 +386,7 @@ def kbest(X, y, select_method, pipeline):
     else:
         raise ValueError("""Must specify feature selection technique 
                          in select method""")
+        
     # Getting feature names
     names = (X
              .columns
@@ -417,6 +429,9 @@ def manual_perm_test(model: 'Fitted sklearn estimator',
                      clf: bool=False) -> 'p-value, null_counts':
     """
 
+    Permutation test to derive the null distribution for the best 
+    performing model.
+
     :param model: Fitted sklearn estimator object
     :param X: Feature matrix for prediction
     :param y: Vector of outcome labels
@@ -434,17 +449,17 @@ def manual_perm_test(model: 'Fitted sklearn estimator',
 
     scores = []  # Empty list for null distribution scores
     n_perms = range(1, n_permutations, 1)  # Range of values to permute
-    for n in tqdm(n_perms, desc = 'Permutation test'):  # tqdm for progress bar
+    for n in tqdm(n_perms, desc='Permutation test'):  # tqdm for progress bar
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, stratify = y, test_size = 0.90, random_state = n
+            X, y, stratify=y, test_size=0.90, random_state=n
         )
         model.fit(X_train, y_train)
         y_test_perm = np.random.permutation(y_test)  # Permuting class labels
-        chance_scores = round(model.score(X = X_test, y = y_test_perm), 4)
+        chance_scores = round(model.score(X=X_test, y=y_test_perm), 4)
         scores.append(chance_scores)
 
     # Converting to a pandas dataframe
-    perm_scores_df = pd.DataFrame(data = scores, columns = ['null_dist'])
+    perm_scores_df = pd.DataFrame(data=scores, columns=['null_dist'])
     perm_scores_df['null_dist'] *= 100
     null_counts = (
         perm_scores_df  # Counts greater than or equal to our test set score
@@ -453,47 +468,47 @@ def manual_perm_test(model: 'Fitted sklearn estimator',
         .iloc[0]
     )
     p_value = (null_counts + 1) / (n_permutations + 1)
-    p_value = np.round(p_value, decimals = 5)
+    p_value = np.round(p_value, decimals=5)
 
     if plot is True:  # Plotting a histogram of permutation scores
-        plt.figure(figsize = (10, 10))
-        sns.distplot(a = perm_scores_df['null_dist'],
-                     hist = True,
-                     label = 'Permutation scores')
+        plt.figure(figsize=(10, 10))
+        sns.distplot(a=perm_scores_df['null_dist'],
+                     hist=True,
+                     label='Permutation scores')
         ylim = plt.ylim()
         if clf is False:
             # True classifier score and p-value
             plt.plot(2 * [true_score],
                      ylim,
                      '--g',
-                     linewidth = 3,
-                     label = 'R2 score %s (pvalue : %s)' %
-                             (true_score, p_value))
+                     linewidth=3,
+                     label='R2 score %s (pvalue : %s)' %
+                            (true_score, p_value))
         else:
             plt.plot(2 * [true_score],
                      ylim,
                      '--g',
-                     linewidth = 3,
-                     label = 'Multimodal AUC score: %s (pvalue = %s)' %
-                             (true_score, p_value))
+                     linewidth=3,
+                     label='Multimodal AUC score: %s (pvalue = %s)' %
+                            (true_score, p_value))
             n_classes = np.unique(y).size
             chance = 2 * [100. / n_classes]
             plt.plot(chance,
                      ylim,
                      '--k',
-                     linewidth = 3,
-                     label = 'Null model mean AUC score: %s' % 50.00)
+                     linewidth=3,
+                     label='Null model mean AUC score: %s' % 50.00)
             
         plt.ylim(ylim)
-        plt.legend(loc = 'lower center', bbox_to_anchor = (0.5, -0.38))
+        plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.38))
         plt.tight_layout()
 
         if clf is False:
-            plt.xlabel(xlabel = 'R2 Scores')
+            plt.xlabel(xlabel='R2 Scores')
         else:
-            plt.xlabel(xlabel = 'AUC Scores')
-        plt.title(label = 'Null Distribution')
-        plt.savefig('quadratic_null_dist.png', dpi = 300, bbox_inches = 'tight')
+            plt.xlabel(xlabel='AUC Scores')
+        plt.title(label='Null Distribution')
+        plt.savefig('quadratic_null_dist.png', dpi=300, bbox_inches='tight')
         plt.show()
 
     return p_value, null_counts
@@ -503,6 +518,7 @@ def main():
 
     print('Running main()')
     start_time = time()
+    pandas_config()
 
     # Preparing data
     X, y, rand_state = data_prep(
@@ -510,10 +526,11 @@ def main():
         y='relapse',
         dropna=False
     )
+    
     # Linear SVM
     svc = SVC(kernel='linear',
               class_weight='balanced',
-              probability=True,  # For sigmoid calibration
+              probability=True,  # For sigmoid calibration of probabilities
               random_state=rand_state)
 
     # Hyperparameter grid
@@ -562,15 +579,13 @@ def main():
                                        pipeline=tuned_pipe)
 
     # Using a permutation test to test the significance of the classifier
-    permutation_test(estimator=tuned_pipe,
-                     X=X,
-                     y=y,
-                     scoring='roc_auc',
-                     cv=10,
-                     n_permutations=10000,
-                     plot=True,
-                     n_jobs=-1,
-                     random_state=rand_state)
+    p_value, null_counts = manual_perm_test(model=pipe,
+                                            X=X,
+                                            y=y,
+                                            true_score=67.74,
+                                            n_permutations=10000,
+                                            plot=True,
+                                            clf=True)
 
     # Output
     stop_time = time()
@@ -578,6 +593,8 @@ def main():
     output = (best_inner_cv_test_score, '',
               train_results, '',
               test_results, '',
+              p_value, '',
+              null_counts, '',
               top_features, '',
               params_df, '',
               print('Run time = {timer} minutes'.format(timer = run_time)))
