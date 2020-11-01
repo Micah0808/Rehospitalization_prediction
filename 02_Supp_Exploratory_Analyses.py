@@ -3,8 +3,8 @@
 
 """
 
-Chi square and t-tests for the final predictors from the
-re-hospitilization models
+Supplementary exploratory analysis of the final multimodal
+predictors selected by the Elastic Net in the ML analysis
 
 """
 
